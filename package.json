@@ -4,7 +4,6 @@
   "private": true,
   "description": "GitHub Action that resolves an npm dist-tag, bumps a consumer's package.json, and emits a rich PR body (commits + grouped PRs) to feed peter-evans/create-pull-request.",
   "license": "MIT",
-  "type": "module",
   "scripts": {
     "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/index.js",
     "build:check": "npm run build && git diff --exit-code dist/index.js",
