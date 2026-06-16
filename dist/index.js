@@ -23891,7 +23891,7 @@ __export(index_exports, {
 module.exports = __toCommonJS(index_exports);
 var import_promises2 = require("node:fs/promises");
 var import_node_path2 = require("node:path");
-var core = __toESM(require_core(), 1);
+var core = __toESM(require_core());
 
 // src/changelog.ts
 function renderChangelog(ctx, commits) {
@@ -24000,7 +24000,7 @@ function restOfMessage(message) {
 // src/consumer.ts
 var import_promises = require("node:fs/promises");
 var import_node_path = require("node:path");
-var import_exec = __toESM(require_exec(), 1);
+var import_exec = __toESM(require_exec());
 async function readPinnedVersion(cwd, packageName) {
   const path = (0, import_node_path.join)(cwd, "package.json");
   const raw = await (0, import_promises.readFile)(path, "utf8");
@@ -24015,8 +24015,8 @@ async function installExact(pkg, version, ctx) {
 }
 
 // src/dependency.ts
-var import_exec2 = __toESM(require_exec(), 1);
-var import_github = __toESM(require_github(), 1);
+var import_exec2 = __toESM(require_exec());
+var import_github = __toESM(require_github());
 function envFromProcess(extra) {
   const out = {};
   for (const [k, v] of Object.entries(process.env)) {
