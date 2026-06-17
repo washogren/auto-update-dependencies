@@ -3,6 +3,8 @@
 
 import type { AssociatedPr, CommitWithPrs } from './dependency.js';
 
+const ACTION_REPO_URL = 'https://github.com/washogren/auto-update-dependencies';
+
 export interface ChangelogContext {
   package: string;
   tag: string;
@@ -24,10 +26,16 @@ export function renderChangelog(
   // (oldest-first); reversing here keeps the rendering self-contained.
   const ordered = [...commits].reverse();
 
-  out.push(`## Changes in \`${ctx.package}\``);
+  out.push(`## Changes in [\`${ctx.package}\`](${ctx.repoUrl})`);
   out.push('');
+
+  if (ordered.length === 0) {
+    out.push(`No commits between \`${ctx.prev}\` and \`${ctx.next}\`.`);
+    return out.join('\n') + '\n';
+  }
+
   out.push(
-    `Compare: [\`${shortSha(ctx.prevSha)}...${shortSha(ctx.nextSha)}\`](${compareUrl(ctx)}) — ${ordered.length} commit(s)`,
+    `Compare: [\`${shortSha(ctx.prevSha)}...${shortSha(ctx.nextSha)}\`](${compareUrl(ctx)}) — ${pluralize(ordered.length, 'commit')}`,
   );
   out.push('');
 
@@ -38,7 +46,7 @@ export function renderChangelog(
 
   for (const entry of ordered) {
     const subject = firstLine(entry.message);
-    const link = `[\`${shortSha(entry.sha)}\`](${ctx.repoUrl}/commit/${entry.sha}) — ${subject}`;
+    const link = `[\`${shortSha(entry.sha)}\`](${ctx.repoUrl}/commit/${entry.sha}) — ${inlineCode(subject)}`;
     if (entry.prs.length === 0) {
       standalone.push(entry);
       continue;
@@ -56,45 +64,41 @@ export function renderChangelog(
   for (const num of prOrder) {
     const pr = prByNum.get(num)!;
     const commitLines = prCommits.get(num)!;
-    out.push('');
-    out.push(`### [#${num}](${pr.html_url}) — ${pr.title}`);
-    out.push('');
-    out.push('<details>');
-    out.push('<summary>Commits and description</summary>');
-    out.push('');
-    out.push('**Commits:**');
+    out.push(`### [#${num}](${pr.html_url}) — ${inlineCode(pr.title)}`);
     out.push('');
     out.push(...commitLines);
+    out.push('');
     if (pr.body && pr.body.length > 0) {
+      out.push('<details>');
+      out.push('<summary>Description</summary>');
       out.push('');
-      out.push('**Description:**');
+      out.push(blockquote(pr.body));
       out.push('');
-      out.push(pr.body);
+      out.push('</details>');
       out.push('');
     }
-    out.push('</details>');
   }
 
   if (standalone.length > 0) {
-    out.push('');
     out.push('### Commits without an associated PR');
     out.push('');
     for (const entry of standalone) {
       const subject = firstLine(entry.message);
       const rest = restOfMessage(entry.message);
-      out.push(
-        `#### [\`${shortSha(entry.sha)}\`](${ctx.repoUrl}/commit/${entry.sha}) — ${subject}`,
-      );
+      const link = `[\`${shortSha(entry.sha)}\`](${ctx.repoUrl}/commit/${entry.sha})`;
+      out.push(`- ${link} — ${inlineCode(subject)}`);
       if (rest.length > 0) {
+        // Continuation inside the list item — 2-space indent on every line so
+        // the <details> block stays attached to its bullet.
         out.push('');
-        out.push('<details>');
-        out.push('<summary>Description</summary>');
+        out.push('  <details>');
+        out.push('  <summary>Description</summary>');
         out.push('');
-        out.push(rest);
+        out.push(indentLines(blockquote(rest), '  '));
         out.push('');
-        out.push('</details>');
+        out.push('  </details>');
+        out.push('');
       }
-      out.push('');
     }
   }
 
@@ -103,12 +107,14 @@ export function renderChangelog(
 
 function headerLines(ctx: ChangelogContext): string[] {
   return [
-    'Automated dist-tag tracking update.',
+    `Automated dependency update by [auto-update-dependencies](${ACTION_REPO_URL}).`,
     '',
-    `Package:    \`${ctx.package}\``,
-    `Tag:        \`${ctx.tag}\``,
-    `Previous:   \`${ctx.prev}\``,
-    `New:        \`${ctx.next}\``,
+    '|     |     |',
+    '| --- | --- |',
+    `| **Package** | [\`${ctx.package}\`](${ctx.repoUrl}) |`,
+    `| **Tag** | \`${ctx.tag}\` |`,
+    `| **Previous** | [\`${ctx.prev}\`](${ctx.repoUrl}/commit/${ctx.prevSha}) |`,
+    `| **New** | [\`${ctx.next}\`](${ctx.repoUrl}/commit/${ctx.nextSha}) |`,
     '',
   ];
 }
@@ -133,4 +139,42 @@ function restOfMessage(message: string): string {
   const tail = lines.slice(1);
   if (tail[0] === '') tail.shift();
   return tail.join('\n').trimEnd();
+}
+
+// Wrap text in a backtick fence long enough to escape any internal backticks.
+// Quoted PR titles / commit subjects go through this so GitHub doesn't autolink
+// `#N` (or other refs) into the consumer repo.
+function inlineCode(s: string): string {
+  if (s.length === 0) return '``';
+  let maxRun = 0;
+  let cur = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '`') {
+      cur++;
+      if (cur > maxRun) maxRun = cur;
+    } else {
+      cur = 0;
+    }
+  }
+  const fence = '`'.repeat(maxRun + 1);
+  const pad = s.startsWith('`') || s.endsWith('`') ? ' ' : '';
+  return `${fence}${pad}${s}${pad}${fence}`;
+}
+
+function blockquote(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => (line.length === 0 ? '>' : `> ${line}`))
+    .join('\n');
+}
+
+function indentLines(text: string, prefix: string): string {
+  return text
+    .split('\n')
+    .map((line) => `${prefix}${line}`)
+    .join('\n');
+}
+
+function pluralize(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
