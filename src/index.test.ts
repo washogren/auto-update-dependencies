@@ -211,7 +211,7 @@ describe('run — happy path', () => {
 
     const writtenBody = written.get(result.outputs.prBodyPath!);
     expect(writtenBody).toBeDefined();
-    expect(writtenBody).toContain('## Changes in `@your-org/your-dependency`');
+    expect(writtenBody).toContain('## Changes in [`@your-org/your-dependency`]');
     expect(writtenBody).toContain('newest');
     expect(writtenBody).toContain('oldest');
   });
@@ -240,7 +240,7 @@ describe('run — happy path', () => {
 
     const result = await run(baseInputs, deps);
     const onDisk = await readFile(result.outputs.prBodyPath!, 'utf8');
-    expect(onDisk).toContain('Tag:        `dev`');
+    expect(onDisk).toContain('| **Tag** | `dev` |');
     expect(onDisk).toContain('subject');
     expect(onDisk).toContain('<details>');
   });
