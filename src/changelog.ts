@@ -20,17 +20,22 @@ export function renderChangelog(
   ctx: ChangelogContext,
   commits: CommitWithPrs[],
 ): string {
-  const out: string[] = headerLines(ctx);
-
   // Newest commit first. The fetcher passes the GitHub compare-API list as-is
   // (oldest-first); reversing here keeps the rendering self-contained.
   const ordered = [...commits].reverse();
+  const out: string[] = [];
 
-  out.push(`## Changes in [\`${ctx.package}\`](${ctx.repoUrl})`);
+  out.push('| Package | Tag | Previous | New |');
+  out.push('| --- | --- | --- | --- |');
+  out.push(
+    `| [\`${ctx.package}\`](${ctx.repoUrl}) | \`${ctx.tag}\` | [\`${ctx.prev}\`](${ctx.repoUrl}/commit/${ctx.prevSha}) | [\`${ctx.next}\`](${ctx.repoUrl}/commit/${ctx.nextSha}) |`,
+  );
   out.push('');
 
   if (ordered.length === 0) {
     out.push(`No commits between \`${ctx.prev}\` and \`${ctx.next}\`.`);
+    out.push('');
+    out.push(footer());
     return out.join('\n') + '\n';
   }
 
@@ -46,7 +51,7 @@ export function renderChangelog(
 
   for (const entry of ordered) {
     const subject = firstLine(entry.message);
-    const link = `[\`${shortSha(entry.sha)}\`](${ctx.repoUrl}/commit/${entry.sha}) — ${inlineCode(subject)}`;
+    const subheading = `#### [\`${shortSha(entry.sha)}\`](${ctx.repoUrl}/commit/${entry.sha}) — ${inlineCode(subject)}`;
     if (entry.prs.length === 0) {
       standalone.push(entry);
       continue;
@@ -57,66 +62,73 @@ export function renderChangelog(
         prCommits.set(pr.number, []);
         prOrder.push(pr.number);
       }
-      prCommits.get(pr.number)!.push(`- ${link}`);
+      prCommits.get(pr.number)!.push(subheading);
     }
   }
 
-  for (const num of prOrder) {
-    const pr = prByNum.get(num)!;
-    const commitLines = prCommits.get(num)!;
-    out.push(`### [#${num}](${pr.html_url}) — ${inlineCode(pr.title)}`);
+  if (prOrder.length > 0) {
+    out.push('## PRs');
     out.push('');
-    out.push(...commitLines);
-    out.push('');
-    if (pr.body && pr.body.length > 0) {
-      out.push('<details>');
-      out.push('<summary>Description</summary>');
-      out.push('');
-      out.push(blockquote(pr.body));
-      out.push('');
-      out.push('</details>');
+    for (const num of prOrder) {
+      const pr = prByNum.get(num)!;
+      const inner: string[] = [];
+      inner.push(`### [#${num}](${pr.html_url}) — ${inlineCode(pr.title)}`);
+      inner.push('');
+      inner.push(...prCommits.get(num)!);
+      if (pr.body && pr.body.length > 0) {
+        inner.push('');
+        inner.push('<details>');
+        inner.push('<summary>Details</summary>');
+        inner.push('');
+        inner.push(blockquote(pr.body));
+        inner.push('');
+        inner.push('</details>');
+      }
+      out.push(callout('TIP', inner));
       out.push('');
     }
   }
 
   if (standalone.length > 0) {
-    out.push('### Commits without an associated PR');
+    out.push('## Commits w/ no PR');
     out.push('');
     for (const entry of standalone) {
       const subject = firstLine(entry.message);
       const rest = restOfMessage(entry.message);
       const link = `[\`${shortSha(entry.sha)}\`](${ctx.repoUrl}/commit/${entry.sha})`;
-      out.push(`- ${link} — ${inlineCode(subject)}`);
+      const inner: string[] = [];
+      inner.push(`#### ${link} — ${inlineCode(subject)}`);
       if (rest.length > 0) {
-        // Continuation inside the list item — 2-space indent on every line so
-        // the <details> block stays attached to its bullet.
-        out.push('');
-        out.push('  <details>');
-        out.push('  <summary>Description</summary>');
-        out.push('');
-        out.push(indentLines(blockquote(rest), '  '));
-        out.push('');
-        out.push('  </details>');
-        out.push('');
+        inner.push('');
+        inner.push('<details>');
+        inner.push('<summary>Details</summary>');
+        inner.push('');
+        inner.push(blockquote(rest));
+        inner.push('');
+        inner.push('</details>');
       }
+      out.push(callout('IMPORTANT', inner));
+      out.push('');
     }
   }
 
+  out.push(footer());
   return out.join('\n') + '\n';
 }
 
-function headerLines(ctx: ChangelogContext): string[] {
-  return [
-    `Automated dependency update by [auto-update-dependencies](${ACTION_REPO_URL}).`,
-    '',
-    '|     |     |',
-    '| --- | --- |',
-    `| **Package** | [\`${ctx.package}\`](${ctx.repoUrl}) |`,
-    `| **Tag** | \`${ctx.tag}\` |`,
-    `| **Previous** | [\`${ctx.prev}\`](${ctx.repoUrl}/commit/${ctx.prevSha}) |`,
-    `| **New** | [\`${ctx.next}\`](${ctx.repoUrl}/commit/${ctx.nextSha}) |`,
-    '',
-  ];
+function footer(): string {
+  return `---\n\n_Automated dependency update by [auto-update-dependencies](${ACTION_REPO_URL})._`;
+}
+
+// Wrap a block of inner content in a GitHub alert callout. Every line gets a
+// `>` prefix; blank lines collapse to a bare `>` so the callout stays open.
+function callout(kind: 'TIP' | 'IMPORTANT' | 'NOTE' | 'WARNING' | 'CAUTION', inner: string[]): string {
+  const flat = inner.join('\n').split('\n');
+  const lines = [`> [!${kind}]`];
+  for (const line of flat) {
+    lines.push(line.length === 0 ? '>' : `> ${line}`);
+  }
+  return lines.join('\n');
 }
 
 function compareUrl(ctx: ChangelogContext): string {
@@ -165,13 +177,6 @@ function blockquote(text: string): string {
   return text
     .split('\n')
     .map((line) => (line.length === 0 ? '>' : `> ${line}`))
-    .join('\n');
-}
-
-function indentLines(text: string, prefix: string): string {
-  return text
-    .split('\n')
-    .map((line) => `${prefix}${line}`)
     .join('\n');
 }
 
