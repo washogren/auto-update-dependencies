@@ -23896,12 +23896,18 @@ var core = __toESM(require_core());
 // src/changelog.ts
 var ACTION_REPO_URL = "https://github.com/washogren/auto-update-dependencies";
 function renderChangelog(ctx, commits) {
-  const out = headerLines(ctx);
   const ordered = [...commits].reverse();
-  out.push(`## Changes in [\`${ctx.package}\`](${ctx.repoUrl})`);
+  const out = [];
+  out.push("| Package | Tag | Previous | New |");
+  out.push("| --- | --- | --- | --- |");
+  out.push(
+    `| [\`${ctx.package}\`](${ctx.repoUrl}) | \`${ctx.tag}\` | [\`${ctx.prev}\`](${ctx.repoUrl}/commit/${ctx.prevSha}) | [\`${ctx.next}\`](${ctx.repoUrl}/commit/${ctx.nextSha}) |`
+  );
   out.push("");
   if (ordered.length === 0) {
     out.push(`No commits between \`${ctx.prev}\` and \`${ctx.next}\`.`);
+    out.push("");
+    out.push(footer());
     return out.join("\n") + "\n";
   }
   out.push(
@@ -23914,7 +23920,7 @@ function renderChangelog(ctx, commits) {
   const standalone = [];
   for (const entry of ordered) {
     const subject = firstLine(entry.message);
-    const link = `[\`${shortSha(entry.sha)}\`](${ctx.repoUrl}/commit/${entry.sha}) \u2014 ${inlineCode(subject)}`;
+    const subheading = `#### [\`${shortSha(entry.sha)}\`](${ctx.repoUrl}/commit/${entry.sha}) \u2014 ${inlineCode(subject)}`;
     if (entry.prs.length === 0) {
       standalone.push(entry);
       continue;
@@ -23925,60 +23931,68 @@ function renderChangelog(ctx, commits) {
         prCommits.set(pr.number, []);
         prOrder.push(pr.number);
       }
-      prCommits.get(pr.number).push(`- ${link}`);
+      prCommits.get(pr.number).push(subheading);
     }
   }
-  for (const num of prOrder) {
-    const pr = prByNum.get(num);
-    const commitLines = prCommits.get(num);
-    out.push(`### [#${num}](${pr.html_url}) \u2014 ${inlineCode(pr.title)}`);
+  if (prOrder.length > 0) {
+    out.push("## PRs");
     out.push("");
-    out.push(...commitLines);
-    out.push("");
-    if (pr.body && pr.body.length > 0) {
-      out.push("<details>");
-      out.push("<summary>Description</summary>");
-      out.push("");
-      out.push(blockquote(pr.body));
-      out.push("");
-      out.push("</details>");
+    for (const num of prOrder) {
+      const pr = prByNum.get(num);
+      const inner = [];
+      inner.push(`### [#${num}](${pr.html_url}) \u2014 ${inlineCode(pr.title)}`);
+      inner.push("");
+      inner.push(...prCommits.get(num));
+      if (pr.body && pr.body.length > 0) {
+        inner.push("");
+        inner.push("<details>");
+        inner.push("<summary>Details</summary>");
+        inner.push("");
+        inner.push(blockquote(pr.body));
+        inner.push("");
+        inner.push("</details>");
+      }
+      out.push(callout("TIP", inner));
       out.push("");
     }
   }
   if (standalone.length > 0) {
-    out.push("### Commits without an associated PR");
+    out.push("## Commits w/ no PR");
     out.push("");
     for (const entry of standalone) {
       const subject = firstLine(entry.message);
       const rest = restOfMessage(entry.message);
       const link = `[\`${shortSha(entry.sha)}\`](${ctx.repoUrl}/commit/${entry.sha})`;
-      out.push(`- ${link} \u2014 ${inlineCode(subject)}`);
+      const inner = [];
+      inner.push(`#### ${link} \u2014 ${inlineCode(subject)}`);
       if (rest.length > 0) {
-        out.push("");
-        out.push("  <details>");
-        out.push("  <summary>Description</summary>");
-        out.push("");
-        out.push(indentLines(blockquote(rest), "  "));
-        out.push("");
-        out.push("  </details>");
-        out.push("");
+        inner.push("");
+        inner.push("<details>");
+        inner.push("<summary>Details</summary>");
+        inner.push("");
+        inner.push(blockquote(rest));
+        inner.push("");
+        inner.push("</details>");
       }
+      out.push(callout("IMPORTANT", inner));
+      out.push("");
     }
   }
+  out.push(footer());
   return out.join("\n") + "\n";
 }
-function headerLines(ctx) {
-  return [
-    `Automated dependency update by [auto-update-dependencies](${ACTION_REPO_URL}).`,
-    "",
-    "|     |     |",
-    "| --- | --- |",
-    `| **Package** | [\`${ctx.package}\`](${ctx.repoUrl}) |`,
-    `| **Tag** | \`${ctx.tag}\` |`,
-    `| **Previous** | [\`${ctx.prev}\`](${ctx.repoUrl}/commit/${ctx.prevSha}) |`,
-    `| **New** | [\`${ctx.next}\`](${ctx.repoUrl}/commit/${ctx.nextSha}) |`,
-    ""
-  ];
+function footer() {
+  return `---
+
+_Automated dependency update by [auto-update-dependencies](${ACTION_REPO_URL})._`;
+}
+function callout(kind, inner) {
+  const flat = inner.join("\n").split("\n");
+  const lines = [`> [!${kind}]`];
+  for (const line of flat) {
+    lines.push(line.length === 0 ? ">" : `> ${line}`);
+  }
+  return lines.join("\n");
 }
 function compareUrl(ctx) {
   return `${ctx.repoUrl}/compare/${ctx.prevSha}...${ctx.nextSha}`;
@@ -24015,9 +24029,6 @@ function inlineCode(s) {
 }
 function blockquote(text) {
   return text.split("\n").map((line) => line.length === 0 ? ">" : `> ${line}`).join("\n");
-}
-function indentLines(text, prefix) {
-  return text.split("\n").map((line) => `${prefix}${line}`).join("\n");
 }
 function pluralize(n, word) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
