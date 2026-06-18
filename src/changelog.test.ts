@@ -36,17 +36,15 @@ function commit(sha: string, message: string, prs: AssociatedPr[] = []): CommitW
 describe('renderChangelog', () => {
   it('renders an empty range with no commits', () => {
     expect(renderChangelog(ctx(PREV_SHA), [])).toMatchInlineSnapshot(`
-      "Automated dist-tag tracking update.
+      "| Package | Tag | Previous | New |
+      | --- | --- | --- | --- |
+      | [\`@your-org/your-dependency\`](https://github.com/your-org/your-dependency) | \`dev\` | [\`1.0.0-staging.5\`](https://github.com/your-org/your-dependency/commit/0000000000000000000000000000000000000000) | [\`1.0.2-dev.12\`](https://github.com/your-org/your-dependency/commit/0000000000000000000000000000000000000000) |
 
-      Package:    \`@your-org/your-dependency\`
-      Tag:        \`dev\`
-      Previous:   \`1.0.0-staging.5\`
-      New:        \`1.0.2-dev.12\`
+      No commits between \`1.0.0-staging.5\` and \`1.0.2-dev.12\`.
 
-      ## Changes in \`@your-org/your-dependency\`
+      ---
 
-      Compare: [\`0000000...0000000\`](https://github.com/your-org/your-dependency/compare/0000000000000000000000000000000000000000...0000000000000000000000000000000000000000) — 0 commit(s)
-
+      _Automated dependency update by [auto-update-dependencies](https://github.com/washogren/auto-update-dependencies)._
       "
     `);
   });
@@ -60,26 +58,26 @@ describe('renderChangelog', () => {
       commit('c'.repeat(40), 'newest commit'),
     ];
     expect(renderChangelog(ctx('c'.repeat(40)), commits)).toMatchInlineSnapshot(`
-      "Automated dist-tag tracking update.
+      "| Package | Tag | Previous | New |
+      | --- | --- | --- | --- |
+      | [\`@your-org/your-dependency\`](https://github.com/your-org/your-dependency) | \`dev\` | [\`1.0.0-staging.5\`](https://github.com/your-org/your-dependency/commit/0000000000000000000000000000000000000000) | [\`1.0.2-dev.12\`](https://github.com/your-org/your-dependency/commit/cccccccccccccccccccccccccccccccccccccccc) |
 
-      Package:    \`@your-org/your-dependency\`
-      Tag:        \`dev\`
-      Previous:   \`1.0.0-staging.5\`
-      New:        \`1.0.2-dev.12\`
+      Compare: [\`0000000...ccccccc\`](https://github.com/your-org/your-dependency/compare/0000000000000000000000000000000000000000...cccccccccccccccccccccccccccccccccccccccc) — 3 commits
 
-      ## Changes in \`@your-org/your-dependency\`
+      ## Commits w/ no PR
 
-      Compare: [\`0000000...ccccccc\`](https://github.com/your-org/your-dependency/compare/0000000000000000000000000000000000000000...cccccccccccccccccccccccccccccccccccccccc) — 3 commit(s)
+      > [!IMPORTANT]
+      > #### [\`ccccccc\`](https://github.com/your-org/your-dependency/commit/cccccccccccccccccccccccccccccccccccccccc) — \`newest commit\`
 
+      > [!IMPORTANT]
+      > #### [\`bbbbbbb\`](https://github.com/your-org/your-dependency/commit/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) — \`middle commit\`
 
-      ### Commits without an associated PR
+      > [!IMPORTANT]
+      > #### [\`aaaaaaa\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — \`oldest commit\`
 
-      #### [\`ccccccc\`](https://github.com/your-org/your-dependency/commit/cccccccccccccccccccccccccccccccccccccccc) — newest commit
+      ---
 
-      #### [\`bbbbbbb\`](https://github.com/your-org/your-dependency/commit/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) — middle commit
-
-      #### [\`aaaaaaa\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — oldest commit
-
+      _Automated dependency update by [auto-update-dependencies](https://github.com/washogren/auto-update-dependencies)._
       "
     `);
   });
@@ -92,31 +90,29 @@ describe('renderChangelog', () => {
       ),
     ];
     expect(renderChangelog(ctx('a'.repeat(40)), commits)).toMatchInlineSnapshot(`
-      "Automated dist-tag tracking update.
+      "| Package | Tag | Previous | New |
+      | --- | --- | --- | --- |
+      | [\`@your-org/your-dependency\`](https://github.com/your-org/your-dependency) | \`dev\` | [\`1.0.0-staging.5\`](https://github.com/your-org/your-dependency/commit/0000000000000000000000000000000000000000) | [\`1.0.2-dev.12\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) |
 
-      Package:    \`@your-org/your-dependency\`
-      Tag:        \`dev\`
-      Previous:   \`1.0.0-staging.5\`
-      New:        \`1.0.2-dev.12\`
+      Compare: [\`0000000...aaaaaaa\`](https://github.com/your-org/your-dependency/compare/0000000000000000000000000000000000000000...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — 1 commit
 
-      ## Changes in \`@your-org/your-dependency\`
+      ## Commits w/ no PR
 
-      Compare: [\`0000000...aaaaaaa\`](https://github.com/your-org/your-dependency/compare/0000000000000000000000000000000000000000...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — 1 commit(s)
+      > [!IMPORTANT]
+      > #### [\`aaaaaaa\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — \`Add caching layer\`
+      >
+      > <details>
+      > <summary>Details</summary>
+      >
+      > > ## Why
+      > >
+      > > Reduces p99 latency on the hot path.
+      >
+      > </details>
 
+      ---
 
-      ### Commits without an associated PR
-
-      #### [\`aaaaaaa\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — Add caching layer
-
-      <details>
-      <summary>Description</summary>
-
-      ## Why
-
-      Reduces p99 latency on the hot path.
-
-      </details>
-
+      _Automated dependency update by [auto-update-dependencies](https://github.com/washogren/auto-update-dependencies)._
       "
     `);
   });
@@ -133,35 +129,32 @@ describe('renderChangelog', () => {
       commit('b'.repeat(40), 'commit B', [pr]),
     ];
     expect(renderChangelog(ctx('b'.repeat(40)), commits)).toMatchInlineSnapshot(`
-      "Automated dist-tag tracking update.
+      "| Package | Tag | Previous | New |
+      | --- | --- | --- | --- |
+      | [\`@your-org/your-dependency\`](https://github.com/your-org/your-dependency) | \`dev\` | [\`1.0.0-staging.5\`](https://github.com/your-org/your-dependency/commit/0000000000000000000000000000000000000000) | [\`1.0.2-dev.12\`](https://github.com/your-org/your-dependency/commit/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) |
 
-      Package:    \`@your-org/your-dependency\`
-      Tag:        \`dev\`
-      Previous:   \`1.0.0-staging.5\`
-      New:        \`1.0.2-dev.12\`
+      Compare: [\`0000000...bbbbbbb\`](https://github.com/your-org/your-dependency/compare/0000000000000000000000000000000000000000...bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) — 2 commits
 
-      ## Changes in \`@your-org/your-dependency\`
+      ## PRs
 
-      Compare: [\`0000000...bbbbbbb\`](https://github.com/your-org/your-dependency/compare/0000000000000000000000000000000000000000...bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) — 2 commit(s)
+      > [!TIP]
+      > ### [#42](https://github.com/your-org/your-dependency/pull/42) — \`Add feature X\`
+      >
+      > #### [\`bbbbbbb\`](https://github.com/your-org/your-dependency/commit/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) — \`commit B\`
+      > #### [\`aaaaaaa\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — \`commit A\`
+      >
+      > <details>
+      > <summary>Details</summary>
+      >
+      > > ## Summary
+      > >
+      > > Implements feature X by doing the thing.
+      >
+      > </details>
 
+      ---
 
-      ### [#42](https://github.com/your-org/your-dependency/pull/42) — Add feature X
-
-      <details>
-      <summary>Commits and description</summary>
-
-      **Commits:**
-
-      - [\`bbbbbbb\`](https://github.com/your-org/your-dependency/commit/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) — commit B
-      - [\`aaaaaaa\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — commit A
-
-      **Description:**
-
-      ## Summary
-
-      Implements feature X by doing the thing.
-
-      </details>
+      _Automated dependency update by [auto-update-dependencies](https://github.com/washogren/auto-update-dependencies)._
       "
     `);
   });
@@ -175,27 +168,22 @@ describe('renderChangelog', () => {
     };
     const commits: CommitWithPrs[] = [commit('a'.repeat(40), 'commit', [pr])];
     expect(renderChangelog(ctx('a'.repeat(40)), commits)).toMatchInlineSnapshot(`
-      "Automated dist-tag tracking update.
+      "| Package | Tag | Previous | New |
+      | --- | --- | --- | --- |
+      | [\`@your-org/your-dependency\`](https://github.com/your-org/your-dependency) | \`dev\` | [\`1.0.0-staging.5\`](https://github.com/your-org/your-dependency/commit/0000000000000000000000000000000000000000) | [\`1.0.2-dev.12\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) |
 
-      Package:    \`@your-org/your-dependency\`
-      Tag:        \`dev\`
-      Previous:   \`1.0.0-staging.5\`
-      New:        \`1.0.2-dev.12\`
+      Compare: [\`0000000...aaaaaaa\`](https://github.com/your-org/your-dependency/compare/0000000000000000000000000000000000000000...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — 1 commit
 
-      ## Changes in \`@your-org/your-dependency\`
+      ## PRs
 
-      Compare: [\`0000000...aaaaaaa\`](https://github.com/your-org/your-dependency/compare/0000000000000000000000000000000000000000...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — 1 commit(s)
+      > [!TIP]
+      > ### [#1](https://github.com/x/y/pull/1) — \`Empty body PR\`
+      >
+      > #### [\`aaaaaaa\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — \`commit\`
 
+      ---
 
-      ### [#1](https://github.com/x/y/pull/1) — Empty body PR
-
-      <details>
-      <summary>Commits and description</summary>
-
-      **Commits:**
-
-      - [\`aaaaaaa\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — commit
-      </details>
+      _Automated dependency update by [auto-update-dependencies](https://github.com/washogren/auto-update-dependencies)._
       "
     `);
   });
@@ -214,32 +202,27 @@ describe('renderChangelog', () => {
       commit('b'.repeat(40), 'direct push'),
     ];
     expect(renderChangelog(ctx('b'.repeat(40)), commits)).toMatchInlineSnapshot(`
-      "Automated dist-tag tracking update.
+      "| Package | Tag | Previous | New |
+      | --- | --- | --- | --- |
+      | [\`@your-org/your-dependency\`](https://github.com/your-org/your-dependency) | \`dev\` | [\`1.0.0-staging.5\`](https://github.com/your-org/your-dependency/commit/0000000000000000000000000000000000000000) | [\`1.0.2-dev.12\`](https://github.com/your-org/your-dependency/commit/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) |
 
-      Package:    \`@your-org/your-dependency\`
-      Tag:        \`dev\`
-      Previous:   \`1.0.0-staging.5\`
-      New:        \`1.0.2-dev.12\`
+      Compare: [\`0000000...bbbbbbb\`](https://github.com/your-org/your-dependency/compare/0000000000000000000000000000000000000000...bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) — 2 commits
 
-      ## Changes in \`@your-org/your-dependency\`
+      ## PRs
 
-      Compare: [\`0000000...bbbbbbb\`](https://github.com/your-org/your-dependency/compare/0000000000000000000000000000000000000000...bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) — 2 commit(s)
+      > [!TIP]
+      > ### [#7](https://github.com/x/y/pull/7) — \`PR title\`
+      >
+      > #### [\`aaaaaaa\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — \`in a PR\`
 
+      ## Commits w/ no PR
 
-      ### [#7](https://github.com/x/y/pull/7) — PR title
+      > [!IMPORTANT]
+      > #### [\`bbbbbbb\`](https://github.com/your-org/your-dependency/commit/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) — \`direct push\`
 
-      <details>
-      <summary>Commits and description</summary>
+      ---
 
-      **Commits:**
-
-      - [\`aaaaaaa\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — in a PR
-      </details>
-
-      ### Commits without an associated PR
-
-      #### [\`bbbbbbb\`](https://github.com/your-org/your-dependency/commit/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) — direct push
-
+      _Automated dependency update by [auto-update-dependencies](https://github.com/washogren/auto-update-dependencies)._
       "
     `);
   });
@@ -251,31 +234,29 @@ describe('renderChangelog', () => {
       commit('a'.repeat(40), 'subject\n\nline 1\nline 2\nline 3'),
     ];
     expect(renderChangelog(ctx('a'.repeat(40)), commits)).toMatchInlineSnapshot(`
-      "Automated dist-tag tracking update.
+      "| Package | Tag | Previous | New |
+      | --- | --- | --- | --- |
+      | [\`@your-org/your-dependency\`](https://github.com/your-org/your-dependency) | \`dev\` | [\`1.0.0-staging.5\`](https://github.com/your-org/your-dependency/commit/0000000000000000000000000000000000000000) | [\`1.0.2-dev.12\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) |
 
-      Package:    \`@your-org/your-dependency\`
-      Tag:        \`dev\`
-      Previous:   \`1.0.0-staging.5\`
-      New:        \`1.0.2-dev.12\`
+      Compare: [\`0000000...aaaaaaa\`](https://github.com/your-org/your-dependency/compare/0000000000000000000000000000000000000000...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — 1 commit
 
-      ## Changes in \`@your-org/your-dependency\`
+      ## Commits w/ no PR
 
-      Compare: [\`0000000...aaaaaaa\`](https://github.com/your-org/your-dependency/compare/0000000000000000000000000000000000000000...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — 1 commit(s)
+      > [!IMPORTANT]
+      > #### [\`aaaaaaa\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — \`subject\`
+      >
+      > <details>
+      > <summary>Details</summary>
+      >
+      > > line 1
+      > > line 2
+      > > line 3
+      >
+      > </details>
 
+      ---
 
-      ### Commits without an associated PR
-
-      #### [\`aaaaaaa\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) — subject
-
-      <details>
-      <summary>Description</summary>
-
-      line 1
-      line 2
-      line 3
-
-      </details>
-
+      _Automated dependency update by [auto-update-dependencies](https://github.com/washogren/auto-update-dependencies)._
       "
     `);
 
