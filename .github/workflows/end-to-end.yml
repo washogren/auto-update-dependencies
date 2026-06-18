@@ -118,6 +118,22 @@ jobs:
           echo "$PR_JSON" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
+      - name: Close consumer auto-update PR(s)
+        # Close BEFORE commenting so the link in the PR comment lands on a
+        # closed PR whose body is frozen at this run's rendering. If we left
+        # it open, the next e2e run (or the cron) would update the PR in
+        # place and the historical artifact would be lost.
+        env:
+          PR_JSON: ${{ steps.consumer_pr.outputs.pr_json }}
+          ACTION_PR_NUMBER: ${{ env.ACTION_PR_NUMBER }}
+          ACTION_PR_SHA: ${{ env.ACTION_PR_SHA }}
+        run: |
+          echo "$PR_JSON" | jq -r '.[].number' | while read -r N; do
+            [ -z "$N" ] && continue
+            gh pr close "$N" -R washogren/am-consumer \
+              --comment "Closed by auto-update-dependencies#${ACTION_PR_NUMBER} (action ref \`${ACTION_PR_SHA}\`) so this PR's rendered body stays frozen as the historical e2e artifact."
+          done
+
       - name: Comment on the action PR
         env:
           PR_JSON: ${{ steps.consumer_pr.outputs.pr_json }}
