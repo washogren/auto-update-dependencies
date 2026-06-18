@@ -1,0 +1,145 @@
+name: End-to-end (action PR)
+
+# On every push to a PR, dogfoods the action against the real am-dependency
+# and am-consumer repos:
+#   1. lint / test / build:check on the PR's bundle
+#   2. dispatch am-dependency end-to-end.yml (4 patch bumps on dev) and wait
+#   3. dispatch am-consumer end-to-end.yml at the PR's HEAD SHA and wait
+#   4. comment on the PR with links to the consumer auto-update PR for
+#      manual visual review of the rendered body
+#
+# Concurrency is per-PR for cancel-in-progress (each push supersedes the
+# previous run), and the downstream workflows have their own `end-to-end`
+# group so cross-PR / manual triggers serialize at the resource boundary.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: end-to-end-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build:check
+
+  e2e:
+    # Skip fork PRs — they don't receive secrets, and we don't want to
+    # publish on behalf of an unverified contributor anyway.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.E2E_TOKEN }}
+      ACTION_PR_SHA: ${{ github.event.pull_request.head.sha }}
+      ACTION_PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Dispatch am-dependency bump-burst
+        id: burst
+        run: |
+          START=$(date -u +%s)
+          gh workflow run end-to-end.yml -R washogren/am-dependency --ref dev
+          # Find the run we just dispatched.
+          for i in $(seq 1 30); do
+            RUN_ID=$(gh run list -R washogren/am-dependency \
+              --workflow end-to-end.yml \
+              --limit 5 \
+              --json databaseId,createdAt,event \
+              -q "[.[] | select(.event == \"workflow_dispatch\") | select((.createdAt | fromdateiso8601) >= $START)] | .[0].databaseId")
+            if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
+              echo "burst_run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+              echo "burst_run_url=https://github.com/washogren/am-dependency/actions/runs/$RUN_ID" >> "$GITHUB_OUTPUT"
+              break
+            fi
+            sleep 2
+          done
+          if [ -z "${RUN_ID:-}" ] || [ "$RUN_ID" = "null" ]; then
+            echo "could not locate dispatched bump-burst run" >&2
+            exit 1
+          fi
+          echo "Dispatched: https://github.com/washogren/am-dependency/actions/runs/$RUN_ID"
+
+      - name: Wait for am-dependency end-to-end to finish
+        run: |
+          gh run watch -R washogren/am-dependency ${{ steps.burst.outputs.burst_run_id }} --exit-status
+
+      - name: Dispatch am-consumer end-to-end at PR SHA
+        id: consumer
+        run: |
+          START=$(date -u +%s)
+          gh workflow run end-to-end.yml -R washogren/am-consumer \
+            --ref master \
+            --field action-ref="$ACTION_PR_SHA"
+          for i in $(seq 1 30); do
+            RUN_ID=$(gh run list -R washogren/am-consumer \
+              --workflow end-to-end.yml \
+              --limit 5 \
+              --json databaseId,createdAt,event \
+              -q "[.[] | select(.event == \"workflow_dispatch\") | select((.createdAt | fromdateiso8601) >= $START)] | .[0].databaseId")
+            if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
+              echo "consumer_run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+              echo "consumer_run_url=https://github.com/washogren/am-consumer/actions/runs/$RUN_ID" >> "$GITHUB_OUTPUT"
+              break
+            fi
+            sleep 2
+          done
+          if [ -z "${RUN_ID:-}" ] || [ "$RUN_ID" = "null" ]; then
+            echo "could not locate dispatched am-consumer run" >&2
+            exit 1
+          fi
+
+      - name: Wait for am-consumer end-to-end to finish
+        run: |
+          gh run watch -R washogren/am-consumer ${{ steps.consumer.outputs.consumer_run_id }} --exit-status
+
+      - name: Find consumer auto-update PR(s)
+        id: consumer_pr
+        run: |
+          # The action opens / updates `auto-update/washogren-am-dependency-dev`.
+          PR_JSON=$(gh pr list -R washogren/am-consumer \
+            --state open \
+            --head auto-update/washogren-am-dependency-dev \
+            --json number,url,title \
+            --limit 5)
+          echo "pr_json<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$PR_JSON" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Comment on the action PR
+        env:
+          PR_JSON: ${{ steps.consumer_pr.outputs.pr_json }}
+          BURST_RUN_URL: ${{ steps.burst.outputs.burst_run_url }}
+          CONSUMER_RUN_URL: ${{ steps.consumer.outputs.consumer_run_url }}
+        run: |
+          PR_LINKS=$(printf '%s' "$PR_JSON" | jq -r '.[] | "- [\(.title)](\(.url))"')
+          if [ -z "$PR_LINKS" ]; then
+            PR_LINKS="_(no open auto-update PR found on am-consumer — the run may have produced no diff)_"
+          fi
+
+          {
+            echo "### End-to-end test results"
+            echo
+            echo "**Action ref tested:** \`$ACTION_PR_SHA\`"
+            echo
+            echo "- am-dependency bump-burst: [run]($BURST_RUN_URL)"
+            echo "- am-consumer end-to-end: [run]($CONSUMER_RUN_URL)"
+            echo
+            echo "**Consumer PR(s) for manual review:**"
+            echo
+            echo "$PR_LINKS"
+          } > comment.md
+
+          gh pr comment "$ACTION_PR_NUMBER" -R "$GITHUB_REPOSITORY" --body-file comment.md
