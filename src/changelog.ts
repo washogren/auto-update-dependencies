@@ -16,10 +16,7 @@ export interface ChangelogContext {
   slug: string
 }
 
-export function renderChangelog(
-  ctx: ChangelogContext,
-  commits: CommitWithPrs[]
-): string {
+export function renderChangelog(ctx: ChangelogContext, commits: CommitWithPrs[]): string {
   // Newest commit first. The fetcher passes the GitHub compare-API list as-is
   // (oldest-first); reversing here keeps the rendering self-contained.
   const ordered = [...commits].reverse()
@@ -122,10 +119,7 @@ function footer(): string {
 
 // Wrap a block of inner content in a GitHub alert callout. Every line gets a
 // `>` prefix; blank lines collapse to a bare `>` so the callout stays open.
-function callout(
-  kind: 'TIP' | 'IMPORTANT' | 'NOTE' | 'WARNING' | 'CAUTION',
-  inner: string[]
-): string {
+function callout(kind: 'TIP' | 'IMPORTANT' | 'NOTE' | 'WARNING' | 'CAUTION', inner: string[]): string {
   const flat = inner.join('\n').split('\n')
   const lines = [`> [!${kind}]`]
   for (const line of flat) {

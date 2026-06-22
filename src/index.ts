@@ -38,23 +38,10 @@ export interface Deps {
   runnerTemp: string
   readPinnedVersion(cwd: string, pkg: string): Promise<string | null>
   readDistTag(pkg: string, tag: string, ctx: NpmContext): Promise<string | null>
-  readGitHead(
-    pkg: string,
-    version: string,
-    ctx: NpmContext
-  ): Promise<string | null>
-  readRepositoryUrl(
-    pkg: string,
-    version: string,
-    ctx: NpmContext
-  ): Promise<string | null>
+  readGitHead(pkg: string, version: string, ctx: NpmContext): Promise<string | null>
+  readRepositoryUrl(pkg: string, version: string, ctx: NpmContext): Promise<string | null>
   installExact(pkg: string, version: string, ctx: NpmContext): Promise<void>
-  fetchCommitsWithPrs(
-    token: string,
-    slug: string,
-    prevSha: string,
-    nextSha: string
-  ): Promise<CommitWithPrs[]>
+  fetchCommitsWithPrs(token: string, slug: string, prevSha: string, nextSha: string): Promise<CommitWithPrs[]>
   writeFile(path: string, contents: string): Promise<void>
   log(msg: string): void
 }
@@ -69,17 +56,13 @@ export async function run(inputs: Inputs, deps: Deps): Promise<RunResult> {
     npm_config_registry: inputs.registry
   }
   if (inputs.scope) {
-    extra[
-      `npm_config_${inputs.scope.replace(/^@/, '').replace(/-/g, '_')}_registry`
-    ] = inputs.registry
+    extra[`npm_config_${inputs.scope.replace(/^@/, '').replace(/-/g, '_')}_registry`] = inputs.registry
   }
   const npmCtx: NpmContext = { cwd: deps.cwd, env: envFromProcess(extra) }
 
   const current = await deps.readPinnedVersion(deps.cwd, inputs.package)
   if (!current) {
-    throw new Error(
-      `Could not find ${inputs.package} in package.json dependencies or devDependencies at ${deps.cwd}.`
-    )
+    throw new Error(`Could not find ${inputs.package} in package.json dependencies or devDependencies at ${deps.cwd}.`)
   }
 
   const latest = await deps.readDistTag(inputs.package, inputs.tag, npmCtx)
@@ -97,11 +80,7 @@ export async function run(inputs: Inputs, deps: Deps): Promise<RunResult> {
 
   await deps.installExact(inputs.package, latest, npmCtx)
 
-  const repoUrlRaw = await deps.readRepositoryUrl(
-    inputs.package,
-    latest,
-    npmCtx
-  )
+  const repoUrlRaw = await deps.readRepositoryUrl(inputs.package, latest, npmCtx)
   if (!repoUrlRaw) {
     throw new Error(
       `${inputs.package}@${latest} has no 'repository.url' field in its package metadata. ` +
@@ -127,12 +106,7 @@ export async function run(inputs: Inputs, deps: Deps): Promise<RunResult> {
     )
   }
 
-  const commits = await deps.fetchCommitsWithPrs(
-    inputs.token,
-    slug,
-    prevSha,
-    nextSha
-  )
+  const commits = await deps.fetchCommitsWithPrs(inputs.token, slug, prevSha, nextSha)
 
   const body = renderChangelog(
     {
@@ -190,8 +164,7 @@ function applyOutputs(outputs: Outputs): void {
   if (outputs.latest) core.setOutput('latest', outputs.latest)
   if (outputs.prTitle) core.setOutput('pr-title', outputs.prTitle)
   if (outputs.prBranch) core.setOutput('pr-branch', outputs.prBranch)
-  if (outputs.prCommitMessage)
-    core.setOutput('pr-commit-message', outputs.prCommitMessage)
+  if (outputs.prCommitMessage) core.setOutput('pr-commit-message', outputs.prCommitMessage)
   if (outputs.prBodyPath) core.setOutput('pr-body-path', outputs.prBodyPath)
 }
 

@@ -24141,9 +24141,7 @@ async function run(inputs, deps) {
   const npmCtx = { cwd: deps.cwd, env: envFromProcess(extra) };
   const current = await deps.readPinnedVersion(deps.cwd, inputs.package);
   if (!current) {
-    throw new Error(
-      `Could not find ${inputs.package} in package.json dependencies or devDependencies at ${deps.cwd}.`
-    );
+    throw new Error(`Could not find ${inputs.package} in package.json dependencies or devDependencies at ${deps.cwd}.`);
   }
   const latest = await deps.readDistTag(inputs.package, inputs.tag, npmCtx);
   if (!latest) {
@@ -24156,11 +24154,7 @@ async function run(inputs, deps) {
     return { outputs: { changed: false, current, latest } };
   }
   await deps.installExact(inputs.package, latest, npmCtx);
-  const repoUrlRaw = await deps.readRepositoryUrl(
-    inputs.package,
-    latest,
-    npmCtx
-  );
+  const repoUrlRaw = await deps.readRepositoryUrl(inputs.package, latest, npmCtx);
   if (!repoUrlRaw) {
     throw new Error(
       `${inputs.package}@${latest} has no 'repository.url' field in its package metadata. The dependency must declare a GitHub repository URL so the changelog can link to its commits.`
@@ -24180,12 +24174,7 @@ async function run(inputs, deps) {
       `${inputs.package}@${latest} (the new version) has no 'gitHead' in its package metadata. gitHead is set automatically by 'npm publish' from a clean git checkout.`
     );
   }
-  const commits = await deps.fetchCommitsWithPrs(
-    inputs.token,
-    slug,
-    prevSha,
-    nextSha
-  );
+  const commits = await deps.fetchCommitsWithPrs(inputs.token, slug, prevSha, nextSha);
   const body = renderChangelog(
     {
       package: inputs.package,
@@ -24237,8 +24226,7 @@ function applyOutputs(outputs) {
   if (outputs.latest) core.setOutput("latest", outputs.latest);
   if (outputs.prTitle) core.setOutput("pr-title", outputs.prTitle);
   if (outputs.prBranch) core.setOutput("pr-branch", outputs.prBranch);
-  if (outputs.prCommitMessage)
-    core.setOutput("pr-commit-message", outputs.prCommitMessage);
+  if (outputs.prCommitMessage) core.setOutput("pr-commit-message", outputs.prCommitMessage);
   if (outputs.prBodyPath) core.setOutput("pr-body-path", outputs.prBodyPath);
 }
 async function main() {
