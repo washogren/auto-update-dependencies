@@ -16,11 +16,7 @@ const baseInputs: Inputs = {
   token: 'fake-token'
 }
 
-function commit(
-  sha: string,
-  message: string,
-  prs: AssociatedPr[] = []
-): CommitWithPrs {
+function commit(sha: string, message: string, prs: AssociatedPr[] = []): CommitWithPrs {
   return { sha, message, prs }
 }
 
@@ -49,9 +45,7 @@ async function makeHarness(overrides: Partial<Deps> = {}): Promise<Harness> {
         ? '0173b3fcf5121eed49a3d8ffa3fe839b5ff619e0'
         : 'e4360ace6470bc5b46e1ea98e65a695fd7cca3ed'
     ),
-    readRepositoryUrl: vi.fn(
-      async () => 'git+https://github.com/your-org/your-dependency.git'
-    ),
+    readRepositoryUrl: vi.fn(async () => 'git+https://github.com/your-org/your-dependency.git'),
     installExact: vi.fn(async (pkg, version) => {
       installed.push(`${pkg}@${version}`)
     }),
@@ -88,9 +82,7 @@ describe('run — package.json missing', () => {
     })
     cleanupPaths.push(cwd, deps.runnerTemp)
     await expect(run(baseInputs, deps)).rejects.toThrow(
-      new RegExp(
-        `Could not find @your-org/your-dependency.*${cwd.replace(/\//g, '\\/')}`
-      )
+      new RegExp(`Could not find @your-org/your-dependency.*${cwd.replace(/\//g, '\\/')}`)
     )
     expect(deps.installExact).not.toHaveBeenCalled()
   })
@@ -126,9 +118,7 @@ describe('run — gitHead missing', () => {
   it('throws naming the previous version when its gitHead is missing', async () => {
     const { deps, cwd } = await makeHarness({
       readGitHead: vi.fn(async (_pkg, version) =>
-        version === '1.0.2-dev.12'
-          ? 'e4360ace6470bc5b46e1ea98e65a695fd7cca3ed'
-          : null
+        version === '1.0.2-dev.12' ? 'e4360ace6470bc5b46e1ea98e65a695fd7cca3ed' : null
       )
     })
     cleanupPaths.push(cwd, deps.runnerTemp)
@@ -140,9 +130,7 @@ describe('run — gitHead missing', () => {
   it('throws naming the new version when its gitHead is missing', async () => {
     const { deps, cwd } = await makeHarness({
       readGitHead: vi.fn(async (_pkg, version) =>
-        version === '1.0.0-prod.1'
-          ? '0173b3fcf5121eed49a3d8ffa3fe839b5ff619e0'
-          : null
+        version === '1.0.0-prod.1' ? '0173b3fcf5121eed49a3d8ffa3fe839b5ff619e0' : null
       )
     })
     cleanupPaths.push(cwd, deps.runnerTemp)
@@ -160,9 +148,7 @@ describe('run — fetchCommitsWithPrs throws', () => {
       })
     })
     cleanupPaths.push(cwd, deps.runnerTemp)
-    await expect(run(baseInputs, deps)).rejects.toThrow(
-      /Bad credentials \(HTTP 401\)/
-    )
+    await expect(run(baseInputs, deps)).rejects.toThrow(/Bad credentials \(HTTP 401\)/)
     expect(written.size).toBe(0)
   })
 })
@@ -173,9 +159,7 @@ describe('run — non-github repository', () => {
       readRepositoryUrl: vi.fn(async () => 'git+https://gitlab.com/foo/bar.git')
     })
     cleanupPaths.push(cwd, deps.runnerTemp)
-    await expect(run(baseInputs, deps)).rejects.toThrow(
-      /Could not extract a GitHub.*gitlab\.com/
-    )
+    await expect(run(baseInputs, deps)).rejects.toThrow(/Could not extract a GitHub.*gitlab\.com/)
   })
 })
 
@@ -202,10 +186,7 @@ describe('run — already at latest', () => {
 
 describe('run — happy path', () => {
   it('installs, renders, writes the body file, and emits the full output set', async () => {
-    const commits: CommitWithPrs[] = [
-      commit('a'.repeat(40), 'oldest'),
-      commit('b'.repeat(40), 'newest')
-    ]
+    const commits: CommitWithPrs[] = [commit('a'.repeat(40), 'oldest'), commit('b'.repeat(40), 'newest')]
     const { deps, cwd, installed, written } = await makeHarness({
       fetchCommitsWithPrs: vi.fn(async () => commits)
     })
@@ -227,9 +208,7 @@ describe('run — happy path', () => {
 
     const writtenBody = written.get(result.outputs.prBodyPath!)
     expect(writtenBody).toBeDefined()
-    expect(writtenBody).toContain(
-      '[`@your-org/your-dependency`](https://github.com/your-org/your-dependency)'
-    )
+    expect(writtenBody).toContain('[`@your-org/your-dependency`](https://github.com/your-org/your-dependency)')
     expect(writtenBody).toContain('newest')
     expect(writtenBody).toContain('oldest')
   })
@@ -251,9 +230,7 @@ describe('run — happy path', () => {
       runnerTemp: realRunnerTemp,
       readPinnedVersion,
       writeFile: (path, contents) => writeFile(path, contents, 'utf8'),
-      fetchCommitsWithPrs: vi.fn(async () => [
-        commit('a'.repeat(40), 'subject\n\ndetails')
-      ])
+      fetchCommitsWithPrs: vi.fn(async () => [commit('a'.repeat(40), 'subject\n\ndetails')])
     })
 
     const result = await run(baseInputs, deps)
@@ -266,9 +243,7 @@ describe('run — happy path', () => {
 
 describe('slugForBranch', () => {
   it('strips the leading @ and replaces the / so a scoped name becomes branch-safe', () => {
-    expect(slugForBranch('@your-org/your-dependency')).toBe(
-      'your-org-your-dependency'
-    )
+    expect(slugForBranch('@your-org/your-dependency')).toBe('your-org-your-dependency')
   })
 
   it('passes through an unscoped name unchanged', () => {
@@ -298,10 +273,7 @@ interface CompositeStep {
 interface ActionYml {
   name: string
   description: string
-  inputs: Record<
-    string,
-    { description: string; required?: boolean; default?: string }
-  >
+  inputs: Record<string, { description: string; required?: boolean; default?: string }>
   outputs: Record<string, { description: string; value: string }>
   runs: { using: string; steps: CompositeStep[] }
 }
@@ -322,13 +294,10 @@ describe('action.yml — composite shape', () => {
   it('runs setup-node before the bump and peter-evans after', async () => {
     const yml = await loadActionYml()
     const steps = yml.runs.steps
-    const idx = (matcher: (s: CompositeStep) => boolean) =>
-      steps.findIndex(matcher)
+    const idx = (matcher: (s: CompositeStep) => boolean) => steps.findIndex(matcher)
     const setupIdx = idx((s) => (s.uses ?? '').startsWith('actions/setup-node'))
     const bumpIdx = idx((s) => s.id === 'bump')
-    const cprIdx = idx((s) =>
-      (s.uses ?? '').startsWith('peter-evans/create-pull-request')
-    )
+    const cprIdx = idx((s) => (s.uses ?? '').startsWith('peter-evans/create-pull-request'))
     expect(setupIdx).toBeGreaterThanOrEqual(0)
     expect(bumpIdx).toBeGreaterThan(setupIdx)
     expect(cprIdx).toBeGreaterThan(bumpIdx)
@@ -336,9 +305,7 @@ describe('action.yml — composite shape', () => {
 
   it('only runs peter-evans when the bump step reports changed', async () => {
     const yml = await loadActionYml()
-    const cpr = yml.runs.steps.find((s) =>
-      (s.uses ?? '').startsWith('peter-evans/create-pull-request')
-    )
+    const cpr = yml.runs.steps.find((s) => (s.uses ?? '').startsWith('peter-evans/create-pull-request'))
     expect(cpr).toBeDefined()
     expect(cpr!.if).toMatch(/steps\.bump\.outputs\.changed\s*==\s*'true'/)
   })
@@ -352,13 +319,7 @@ describe('action.yml — input/env mapping', () => {
     const env = bump!.env ?? {}
 
     // core.getInput('foo-bar') reads INPUT_FOO_BAR — uppercase, hyphens become underscores.
-    const required = [
-      'INPUT_PACKAGE',
-      'INPUT_TAG',
-      'INPUT_NPM_REGISTRY',
-      'INPUT_NPM_SCOPE',
-      'INPUT_TOKEN'
-    ]
+    const required = ['INPUT_PACKAGE', 'INPUT_TAG', 'INPUT_NPM_REGISTRY', 'INPUT_NPM_SCOPE', 'INPUT_TOKEN']
     for (const key of required) {
       expect(env[key], `missing env mapping: ${key}`).toBeDefined()
     }
@@ -374,41 +335,27 @@ describe('action.yml — input/env mapping', () => {
 describe('action.yml — peter-evans wiring', () => {
   it('passes the bump step outputs into peter-evans inputs', async () => {
     const yml = await loadActionYml()
-    const cpr = yml.runs.steps.find((s) =>
-      (s.uses ?? '').startsWith('peter-evans/create-pull-request')
-    )
+    const cpr = yml.runs.steps.find((s) => (s.uses ?? '').startsWith('peter-evans/create-pull-request'))
     const inputs = cpr!.with!
     expect(inputs['title']).toContain('steps.bump.outputs.pr-title')
     expect(inputs['branch']).toContain('steps.bump.outputs.pr-branch')
-    expect(inputs['commit-message']).toContain(
-      'steps.bump.outputs.pr-commit-message'
-    )
+    expect(inputs['commit-message']).toContain('steps.bump.outputs.pr-commit-message')
     expect(inputs['body-path']).toContain('steps.bump.outputs.pr-body-path')
   })
 
   it('falls back to github.ref_name when base-branch input is empty', async () => {
     const yml = await loadActionYml()
-    const cpr = yml.runs.steps.find((s) =>
-      (s.uses ?? '').startsWith('peter-evans/create-pull-request')
-    )
-    expect(cpr!.with!['base']).toMatch(
-      /inputs\.base-branch\s*\|\|\s*github\.ref_name/
-    )
+    const cpr = yml.runs.steps.find((s) => (s.uses ?? '').startsWith('peter-evans/create-pull-request'))
+    expect(cpr!.with!['base']).toMatch(/inputs\.base-branch\s*\|\|\s*github\.ref_name/)
   })
 })
 
 describe('action.yml — outputs', () => {
   it('exposes pr-number, pr-url, and pr-operation from peter-evans', async () => {
     const yml = await loadActionYml()
-    expect(yml.outputs['pr-number'].value).toContain(
-      'steps.cpr.outputs.pull-request-number'
-    )
-    expect(yml.outputs['pr-url'].value).toContain(
-      'steps.cpr.outputs.pull-request-url'
-    )
-    expect(yml.outputs['pr-operation'].value).toContain(
-      'steps.cpr.outputs.pull-request-operation'
-    )
+    expect(yml.outputs['pr-number'].value).toContain('steps.cpr.outputs.pull-request-number')
+    expect(yml.outputs['pr-url'].value).toContain('steps.cpr.outputs.pull-request-url')
+    expect(yml.outputs['pr-operation'].value).toContain('steps.cpr.outputs.pull-request-operation')
   })
 
   it('passes through the bump step outputs (changed, current, latest)', async () => {

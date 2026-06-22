@@ -17,9 +17,7 @@ export interface NpmContext {
   env: Record<string, string>
 }
 
-export function envFromProcess(
-  extra: Record<string, string>
-): Record<string, string> {
+export function envFromProcess(extra: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) {
     if (typeof v === 'string') out[k] = v
@@ -27,11 +25,7 @@ export function envFromProcess(
   return { ...out, ...extra }
 }
 
-export async function readDistTag(
-  pkg: string,
-  tag: string,
-  ctx: NpmContext
-): Promise<string | null> {
+export async function readDistTag(pkg: string, tag: string, ctx: NpmContext): Promise<string | null> {
   // `npm dist-tag ls` is used instead of `npm view <pkg> dist-tags` because the
   // latter silently emits no output against GitHub Packages. A non-zero exit
   // (auth error, registry down, package missing) throws with stderr preserved.
@@ -47,29 +41,17 @@ export async function readDistTag(
   return null
 }
 
-export async function readGitHead(
-  pkg: string,
-  version: string,
-  ctx: NpmContext
-): Promise<string | null> {
+export async function readGitHead(pkg: string, version: string, ctx: NpmContext): Promise<string | null> {
   return readNpmField(`${pkg}@${version}`, 'gitHead', ctx)
 }
 
-export async function readRepositoryUrl(
-  pkg: string,
-  version: string,
-  ctx: NpmContext
-): Promise<string | null> {
+export async function readRepositoryUrl(pkg: string, version: string, ctx: NpmContext): Promise<string | null> {
   // Pin to a specific version because the unpinned form returns empty against
   // GitHub Packages.
   return readNpmField(`${pkg}@${version}`, 'repository.url', ctx)
 }
 
-async function readNpmField(
-  spec: string,
-  field: string,
-  ctx: NpmContext
-): Promise<string | null> {
+async function readNpmField(spec: string, field: string, ctx: NpmContext): Promise<string | null> {
   const result = await getExecOutput('npm', ['view', spec, field], {
     cwd: ctx.cwd,
     env: ctx.env,
