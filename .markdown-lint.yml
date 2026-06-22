@@ -4,13 +4,15 @@
 MD004:
   style: dash
 
-# Disable line length for tables
+# Line length — match Prettier's printWidth (120), disable for tables
 MD013:
+  line_length: 120
   tables: false
 
-# Ordered list item prefix
+# Ordered list item prefix — allow 1./2./3. style so contributors don't have to
+# rewrite every numbered list as 1./1./1.
 MD029:
-  style: one
+  style: ordered
 
 # Spaces after list markers
 MD030:
