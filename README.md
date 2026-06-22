@@ -67,7 +67,7 @@ is still responsible for the surrounding workflow concerns: triggers, `permissio
 ## How the changelog is built
 
 1. `npm view <pkg>@<version> gitHead` is read for both the previously-pinned version and the new version.
-2. `npm view <pkg>@<latest> repository.url` resolves the dependency's GitHub repo.
+2. `npm view <pkg>@<latest> repository.url` resolves the dependency's GitHub repository.
 3. `GET /repos/{slug}/compare/{prev}...{next}` gives the list of commits.
 4. For each commit, `GET /repos/{slug}/commits/{sha}/pulls` resolves the associated PR(s).
 5. Commits are reversed (newest-first) and grouped under each PR; commits without a PR fall through to a "Commits
@@ -95,7 +95,7 @@ The only non-failure "no-op" outcome is `current === latest`: the action logs "A
 ## Why a composite action
 
 The action is composite, not a single Node binary, so it can chain into `peter-evans/create-pull-request@v6` directly.
-Tradeoff: the consumer's workflow becomes a single `uses:` step, but the peter-evans version is pinned by this action's
+Trade-off: the consumer's workflow becomes a single `uses:` step, but the peter-evans version is pinned by this action's
 tag rather than by the consumer. Bump this action's tag to pick up peter-evans updates.
 
 If you want to skip the PR-creation step (e.g. render a body file then commit/push manually), invoke the JS bundle
@@ -140,7 +140,7 @@ The four source modules are split by which repository each one interacts with, p
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `dependency.ts` | Reads about the dependency package: `npm dist-tag ls`, `npm view ... gitHead/repository.url`, `octokit compare`, and per-commit PR association. Read-only.         |
 | `consumer.ts`   | Reads from and writes to the consumer's checkout: `package.json` inspection, `npm install --save-exact`.                                                           |
-| `changelog.ts`  | Pure markdown rendering. No I/O, no async. Tests use inline snapshots so the expected output is visible alongside each case.                                       |
+| `changelog.ts`  | Pure Markdown rendering. No I/O, no async. Tests use inline snapshots so the expected output is visible alongside each case.                                       |
 | `index.ts`      | Action entrypoint: declares `Inputs`/`Outputs`/`Deps`, wires `realDeps` for production, orchestrates the flow in `run()`, and applies outputs via `@actions/core`. |
 
 The `Deps` interface lets the orchestrator tests inject fakes for every I/O boundary without touching `@actions/exec` or
