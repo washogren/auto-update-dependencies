@@ -1,5 +1,8 @@
 name: 'Auto-update dependencies'
-description: 'Resolve an npm dist-tag, bump the consumer package.json, render a rich PR body (commits + grouped PRs from the dependency repo), and open a PR via peter-evans/create-pull-request.'
+description:
+  'Resolve an npm dist-tag, bump the consumer package.json, render a rich PR
+  body (commits + grouped PRs from the dependency repo), and open a PR via
+  peter-evans/create-pull-request.'
 author: 'washogren'
 inputs:
   package:
@@ -9,44 +12,65 @@ inputs:
     description: 'The dist-tag to track (e.g. dev, staging, prod).'
     required: true
   base-branch:
-    description: 'The branch to open the PR against. Defaults to the current ref (GITHUB_REF_NAME).'
+    description:
+      'The branch to open the PR against. Defaults to the current ref
+      (GITHUB_REF_NAME).'
     required: false
   npm-registry:
-    description: 'The npm registry to read from. Defaults to https://npm.pkg.github.com.'
+    description:
+      'The npm registry to read from. Defaults to https://npm.pkg.github.com.'
     required: false
     default: 'https://npm.pkg.github.com'
   npm-scope:
-    description: 'The npm scope to associate with the registry (e.g. @your-org). Required for scoped packages on GitHub Packages.'
+    description:
+      'The npm scope to associate with the registry (e.g. @your-org). Required
+      for scoped packages on GitHub Packages.'
     required: false
   node-version:
     description: 'Node.js version used to run npm install. Defaults to 20.'
     required: false
     default: '20'
   token:
-    description: 'Token used to read the npm registry, the dependency repository (for the changelog), and to open the PR. Typically a PAT with package:read on the registry, repo:read on the dependency repo, and repo:write on the consumer.'
+    description:
+      'Token used to read the npm registry, the dependency repository (for the
+      changelog), and to open the PR. Typically a PAT with package:read on the
+      registry, repo:read on the dependency repo, and repo:write on the
+      consumer.'
     required: true
   delete-branch:
-    description: 'Whether to delete the auto-update branch when the PR is closed/merged. Forwarded to peter-evans/create-pull-request.'
+    description:
+      'Whether to delete the auto-update branch when the PR is closed/merged.
+      Forwarded to peter-evans/create-pull-request.'
     required: false
     default: 'true'
 outputs:
   changed:
-    description: 'true if the dist-tag points to a newer version than what is pinned in package.json; false otherwise.'
+    description:
+      'true if the dist-tag points to a newer version than what is pinned in
+      package.json; false otherwise.'
     value: ${{ steps.bump.outputs.changed }}
   current:
-    description: 'The previously-pinned version (the value that was in package.json before the bump).'
+    description:
+      'The previously-pinned version (the value that was in package.json before
+      the bump).'
     value: ${{ steps.bump.outputs.current }}
   latest:
     description: 'The version the dist-tag now points to.'
     value: ${{ steps.bump.outputs.latest }}
   pr-number:
-    description: 'The number of the PR that was created or updated. Empty when no PR was opened.'
+    description:
+      'The number of the PR that was created or updated. Empty when no PR was
+      opened.'
     value: ${{ steps.cpr.outputs.pull-request-number }}
   pr-url:
-    description: 'The URL of the PR that was created or updated. Empty when no PR was opened.'
+    description:
+      'The URL of the PR that was created or updated. Empty when no PR was
+      opened.'
     value: ${{ steps.cpr.outputs.pull-request-url }}
   pr-operation:
-    description: 'The operation peter-evans performed: created, updated, closed, or none. Empty when no PR was opened.'
+    description:
+      'The operation peter-evans performed: created, updated, closed, or none.
+      Empty when no PR was opened.'
     value: ${{ steps.cpr.outputs.pull-request-operation }}
 runs:
   using: composite
