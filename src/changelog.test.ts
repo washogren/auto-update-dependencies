@@ -10,11 +10,11 @@
 //
 // To regenerate after an intentional rendering change: `npm test -- -u`.
 
-import { describe, expect, it } from 'vitest';
-import { renderChangelog, type ChangelogContext } from './changelog.js';
-import type { AssociatedPr, CommitWithPrs } from './dependency.js';
+import { describe, expect, it } from 'vitest'
+import { renderChangelog, type ChangelogContext } from './changelog.js'
+import type { AssociatedPr, CommitWithPrs } from './dependency.js'
 
-const PREV_SHA = '0'.repeat(40);
+const PREV_SHA = '0'.repeat(40)
 
 function ctx(nextSha: string): ChangelogContext {
   return {
@@ -25,12 +25,16 @@ function ctx(nextSha: string): ChangelogContext {
     prevSha: PREV_SHA,
     nextSha,
     repoUrl: 'https://github.com/your-org/your-dependency',
-    slug: 'your-org/your-dependency',
-  };
+    slug: 'your-org/your-dependency'
+  }
 }
 
-function commit(sha: string, message: string, prs: AssociatedPr[] = []): CommitWithPrs {
-  return { sha, message, prs };
+function commit(
+  sha: string,
+  message: string,
+  prs: AssociatedPr[] = []
+): CommitWithPrs {
+  return { sha, message, prs }
 }
 
 describe('renderChangelog', () => {
@@ -46,8 +50,8 @@ describe('renderChangelog', () => {
 
       _Automated dependency update by [auto-update-dependencies](https://github.com/washogren/auto-update-dependencies)._
       "
-    `);
-  });
+    `)
+  })
 
   it('renders subject-only standalone commits in newest-first order, no <details> blocks', () => {
     // Input is oldest-first (the order GitHub's compare API returns); the
@@ -55,9 +59,10 @@ describe('renderChangelog', () => {
     const commits: CommitWithPrs[] = [
       commit('a'.repeat(40), 'oldest commit'),
       commit('b'.repeat(40), 'middle commit'),
-      commit('c'.repeat(40), 'newest commit'),
-    ];
-    expect(renderChangelog(ctx('c'.repeat(40)), commits)).toMatchInlineSnapshot(`
+      commit('c'.repeat(40), 'newest commit')
+    ]
+    expect(renderChangelog(ctx('c'.repeat(40)), commits))
+      .toMatchInlineSnapshot(`
       "| Package | Tag | Previous | New |
       | --- | --- | --- | --- |
       | [\`@your-org/your-dependency\`](https://github.com/your-org/your-dependency) | \`dev\` | [\`1.0.0-staging.5\`](https://github.com/your-org/your-dependency/commit/0000000000000000000000000000000000000000) | [\`1.0.2-dev.12\`](https://github.com/your-org/your-dependency/commit/cccccccccccccccccccccccccccccccccccccccc) |
@@ -79,17 +84,18 @@ describe('renderChangelog', () => {
 
       _Automated dependency update by [auto-update-dependencies](https://github.com/washogren/auto-update-dependencies)._
       "
-    `);
-  });
+    `)
+  })
 
   it('wraps a multi-line commit body in a collapsible <details> block', () => {
     const commits: CommitWithPrs[] = [
       commit(
         'a'.repeat(40),
-        'Add caching layer\n\n## Why\n\nReduces p99 latency on the hot path.',
-      ),
-    ];
-    expect(renderChangelog(ctx('a'.repeat(40)), commits)).toMatchInlineSnapshot(`
+        'Add caching layer\n\n## Why\n\nReduces p99 latency on the hot path.'
+      )
+    ]
+    expect(renderChangelog(ctx('a'.repeat(40)), commits))
+      .toMatchInlineSnapshot(`
       "| Package | Tag | Previous | New |
       | --- | --- | --- | --- |
       | [\`@your-org/your-dependency\`](https://github.com/your-org/your-dependency) | \`dev\` | [\`1.0.0-staging.5\`](https://github.com/your-org/your-dependency/commit/0000000000000000000000000000000000000000) | [\`1.0.2-dev.12\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) |
@@ -114,21 +120,22 @@ describe('renderChangelog', () => {
 
       _Automated dependency update by [auto-update-dependencies](https://github.com/washogren/auto-update-dependencies)._
       "
-    `);
-  });
+    `)
+  })
 
   it('groups commits under their associated PR with title, link, and full body', () => {
     const pr: AssociatedPr = {
       number: 42,
       title: 'Add feature X',
       html_url: 'https://github.com/your-org/your-dependency/pull/42',
-      body: '## Summary\n\nImplements feature X by doing the thing.',
-    };
+      body: '## Summary\n\nImplements feature X by doing the thing.'
+    }
     const commits: CommitWithPrs[] = [
       commit('a'.repeat(40), 'commit A', [pr]),
-      commit('b'.repeat(40), 'commit B', [pr]),
-    ];
-    expect(renderChangelog(ctx('b'.repeat(40)), commits)).toMatchInlineSnapshot(`
+      commit('b'.repeat(40), 'commit B', [pr])
+    ]
+    expect(renderChangelog(ctx('b'.repeat(40)), commits))
+      .toMatchInlineSnapshot(`
       "| Package | Tag | Previous | New |
       | --- | --- | --- | --- |
       | [\`@your-org/your-dependency\`](https://github.com/your-org/your-dependency) | \`dev\` | [\`1.0.0-staging.5\`](https://github.com/your-org/your-dependency/commit/0000000000000000000000000000000000000000) | [\`1.0.2-dev.12\`](https://github.com/your-org/your-dependency/commit/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) |
@@ -156,18 +163,19 @@ describe('renderChangelog', () => {
 
       _Automated dependency update by [auto-update-dependencies](https://github.com/washogren/auto-update-dependencies)._
       "
-    `);
-  });
+    `)
+  })
 
   it('omits the description block when the PR body is null', () => {
     const pr: AssociatedPr = {
       number: 1,
       title: 'Empty body PR',
       html_url: 'https://github.com/x/y/pull/1',
-      body: null,
-    };
-    const commits: CommitWithPrs[] = [commit('a'.repeat(40), 'commit', [pr])];
-    expect(renderChangelog(ctx('a'.repeat(40)), commits)).toMatchInlineSnapshot(`
+      body: null
+    }
+    const commits: CommitWithPrs[] = [commit('a'.repeat(40), 'commit', [pr])]
+    expect(renderChangelog(ctx('a'.repeat(40)), commits))
+      .toMatchInlineSnapshot(`
       "| Package | Tag | Previous | New |
       | --- | --- | --- | --- |
       | [\`@your-org/your-dependency\`](https://github.com/your-org/your-dependency) | \`dev\` | [\`1.0.0-staging.5\`](https://github.com/your-org/your-dependency/commit/0000000000000000000000000000000000000000) | [\`1.0.2-dev.12\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) |
@@ -185,8 +193,8 @@ describe('renderChangelog', () => {
 
       _Automated dependency update by [auto-update-dependencies](https://github.com/washogren/auto-update-dependencies)._
       "
-    `);
-  });
+    `)
+  })
 
   it('renders both PR-grouped and standalone sections when commits are mixed', () => {
     // PR-grouped section comes first; standalone commits follow under their
@@ -195,13 +203,14 @@ describe('renderChangelog', () => {
       number: 7,
       title: 'PR title',
       html_url: 'https://github.com/x/y/pull/7',
-      body: null,
-    };
+      body: null
+    }
     const commits: CommitWithPrs[] = [
       commit('a'.repeat(40), 'in a PR', [pr]),
-      commit('b'.repeat(40), 'direct push'),
-    ];
-    expect(renderChangelog(ctx('b'.repeat(40)), commits)).toMatchInlineSnapshot(`
+      commit('b'.repeat(40), 'direct push')
+    ]
+    expect(renderChangelog(ctx('b'.repeat(40)), commits))
+      .toMatchInlineSnapshot(`
       "| Package | Tag | Previous | New |
       | --- | --- | --- | --- |
       | [\`@your-org/your-dependency\`](https://github.com/your-org/your-dependency) | \`dev\` | [\`1.0.0-staging.5\`](https://github.com/your-org/your-dependency/commit/0000000000000000000000000000000000000000) | [\`1.0.2-dev.12\`](https://github.com/your-org/your-dependency/commit/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb) |
@@ -224,16 +233,17 @@ describe('renderChangelog', () => {
 
       _Automated dependency update by [auto-update-dependencies](https://github.com/washogren/auto-update-dependencies)._
       "
-    `);
-  });
+    `)
+  })
 
   it('shows the full multi-line commit body without truncation', () => {
     // Inline snapshot uses an abbreviated body to stay readable; the assertion
     // below validates the no-truncation contract on a longer body too.
     const commits: CommitWithPrs[] = [
-      commit('a'.repeat(40), 'subject\n\nline 1\nline 2\nline 3'),
-    ];
-    expect(renderChangelog(ctx('a'.repeat(40)), commits)).toMatchInlineSnapshot(`
+      commit('a'.repeat(40), 'subject\n\nline 1\nline 2\nline 3')
+    ]
+    expect(renderChangelog(ctx('a'.repeat(40)), commits))
+      .toMatchInlineSnapshot(`
       "| Package | Tag | Previous | New |
       | --- | --- | --- | --- |
       | [\`@your-org/your-dependency\`](https://github.com/your-org/your-dependency) | \`dev\` | [\`1.0.0-staging.5\`](https://github.com/your-org/your-dependency/commit/0000000000000000000000000000000000000000) | [\`1.0.2-dev.12\`](https://github.com/your-org/your-dependency/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) |
@@ -258,14 +268,16 @@ describe('renderChangelog', () => {
 
       _Automated dependency update by [auto-update-dependencies](https://github.com/washogren/auto-update-dependencies)._
       "
-    `);
+    `)
 
-    const longBody = Array.from({ length: 200 }, (_, i) => `line ${i}`).join('\n');
+    const longBody = Array.from({ length: 200 }, (_, i) => `line ${i}`).join(
+      '\n'
+    )
     const longResult = renderChangelog(ctx('a'.repeat(40)), [
-      commit('a'.repeat(40), `subject\n\n${longBody}`),
-    ]);
-    expect(longResult).toContain('line 0');
-    expect(longResult).toContain('line 199');
-    expect(longResult).not.toContain('…');
-  });
-});
+      commit('a'.repeat(40), `subject\n\n${longBody}`)
+    ])
+    expect(longResult).toContain('line 0')
+    expect(longResult).toContain('line 199')
+    expect(longResult).not.toContain('…')
+  })
+})

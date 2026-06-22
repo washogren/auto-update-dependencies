@@ -9,26 +9,28 @@
 //     ran fine) return null. The orchestrator decides whether a miss is fatal
 //     and throws a descriptive error with full context.
 
-import { getExecOutput } from '@actions/exec';
-import { getOctokit } from '@actions/github';
+import { getExecOutput } from '@actions/exec'
+import { getOctokit } from '@actions/github'
 
 export interface NpmContext {
-  cwd: string;
-  env: Record<string, string>;
+  cwd: string
+  env: Record<string, string>
 }
 
-export function envFromProcess(extra: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
+export function envFromProcess(
+  extra: Record<string, string>
+): Record<string, string> {
+  const out: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) {
-    if (typeof v === 'string') out[k] = v;
+    if (typeof v === 'string') out[k] = v
   }
-  return { ...out, ...extra };
+  return { ...out, ...extra }
 }
 
 export async function readDistTag(
   pkg: string,
   tag: string,
-  ctx: NpmContext,
+  ctx: NpmContext
 ): Promise<string | null> {
   // `npm dist-tag ls` is used instead of `npm view <pkg> dist-tags` because the
   // latter silently emits no output against GitHub Packages. A non-zero exit
@@ -36,100 +38,100 @@ export async function readDistTag(
   const result = await getExecOutput('npm', ['dist-tag', 'ls', pkg], {
     cwd: ctx.cwd,
     env: ctx.env,
-    silent: true,
-  });
+    silent: true
+  })
   for (const line of result.stdout.split('\n')) {
-    const match = line.match(/^([^:]+):\s*(.+)$/);
-    if (match && match[1] === tag) return match[2].trim();
+    const match = line.match(/^([^:]+):\s*(.+)$/)
+    if (match && match[1] === tag) return match[2].trim()
   }
-  return null;
+  return null
 }
 
 export async function readGitHead(
   pkg: string,
   version: string,
-  ctx: NpmContext,
+  ctx: NpmContext
 ): Promise<string | null> {
-  return readNpmField(`${pkg}@${version}`, 'gitHead', ctx);
+  return readNpmField(`${pkg}@${version}`, 'gitHead', ctx)
 }
 
 export async function readRepositoryUrl(
   pkg: string,
   version: string,
-  ctx: NpmContext,
+  ctx: NpmContext
 ): Promise<string | null> {
   // Pin to a specific version because the unpinned form returns empty against
   // GitHub Packages.
-  return readNpmField(`${pkg}@${version}`, 'repository.url', ctx);
+  return readNpmField(`${pkg}@${version}`, 'repository.url', ctx)
 }
 
 async function readNpmField(
   spec: string,
   field: string,
-  ctx: NpmContext,
+  ctx: NpmContext
 ): Promise<string | null> {
   const result = await getExecOutput('npm', ['view', spec, field], {
     cwd: ctx.cwd,
     env: ctx.env,
-    silent: true,
-  });
-  const value = result.stdout.trim();
-  return value.length > 0 ? value : null;
+    silent: true
+  })
+  const value = result.stdout.trim()
+  return value.length > 0 ? value : null
 }
 
 export function normalizeRepoUrl(raw: string): string {
   return raw
     .replace(/^git\+/, '')
     .replace(/\.git$/, '')
-    .replace(/^git:\/\//, 'https://');
+    .replace(/^git:\/\//, 'https://')
 }
 
 export function extractGitHubSlug(repoUrl: string): string {
-  const match = repoUrl.match(/^https?:\/\/github\.com\/([^/]+\/[^/]+)/);
+  const match = repoUrl.match(/^https?:\/\/github\.com\/([^/]+\/[^/]+)/)
   if (!match) {
     throw new Error(
       `Could not extract a GitHub owner/repo slug from repository URL '${repoUrl}'. ` +
-        `This action only supports dependencies hosted on github.com.`,
-    );
+        `This action only supports dependencies hosted on github.com.`
+    )
   }
-  return match[1];
+  return match[1]
 }
 
 export interface AssociatedPr {
-  number: number;
-  title: string;
-  html_url: string;
-  body: string | null;
+  number: number
+  title: string
+  html_url: string
+  body: string | null
 }
 
 export interface CommitWithPrs {
-  sha: string;
-  message: string;
-  prs: AssociatedPr[];
+  sha: string
+  message: string
+  prs: AssociatedPr[]
 }
 
 export async function fetchCommitsWithPrs(
   token: string,
   slug: string,
   prevSha: string,
-  nextSha: string,
+  nextSha: string
 ): Promise<CommitWithPrs[]> {
-  const [owner, repo] = slug.split('/');
-  const octokit = getOctokit(token);
+  const [owner, repo] = slug.split('/')
+  const octokit = getOctokit(token)
 
   const compare = await octokit.rest.repos.compareCommitsWithBasehead({
     owner,
     repo,
-    basehead: `${prevSha}...${nextSha}`,
-  });
+    basehead: `${prevSha}...${nextSha}`
+  })
 
-  const enriched: CommitWithPrs[] = [];
+  const enriched: CommitWithPrs[] = []
   for (const c of compare.data.commits) {
     const res = await octokit.rest.repos.listPullRequestsAssociatedWithCommit({
       owner,
       repo,
-      commit_sha: c.sha,
-    });
+      commit_sha: c.sha
+    })
     enriched.push({
       sha: c.sha,
       message: c.commit.message,
@@ -137,9 +139,9 @@ export async function fetchCommitsWithPrs(
         number: pr.number,
         title: pr.title,
         html_url: pr.html_url,
-        body: pr.body ?? null,
-      })),
-    });
+        body: pr.body ?? null
+      }))
+    })
   }
-  return enriched;
+  return enriched
 }
