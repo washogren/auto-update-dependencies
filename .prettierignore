@@ -1,0 +1,6 @@
+.DS_Store
+.licenses/
+CLAUDE.md
+dist/
+node_modules/
+coverage/
