@@ -1,0 +1,64 @@
+# In composite actions that ship a bundled JS entrypoint, `dist/` is special:
+# GitHub Actions does not run `npm install` for the JS step, so the committed
+# `dist/index.js` is the code that actually runs. This workflow ensures the
+# committed `dist/` matches a fresh build from the same source.
+#
+# If this workflow is run from a feature branch, it acts as an additional CI
+# check and fails if the checked-in `dist/` directory drifts from the expected
+# build output. On failure the freshly-built dist/ is uploaded as a workflow
+# artifact so a contributor can download and commit it.
+
+name: Check Transpiled JavaScript
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check-dist:
+    name: Check dist/
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Remove dist/
+        run: npx rimraf ./dist
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build dist/
+        run: npm run build
+
+      - name: Compare directories
+        id: diff
+        run: |
+          if [ ! -d dist/ ]; then
+            echo "Expected dist/ directory does not exist. See status below:"
+            ls -la ./
+            exit 1
+          fi
+          if [ "$(git diff --ignore-space-at-eol --text dist/ | wc -l)" -gt "0" ]; then
+            echo "Detected uncommitted changes after build. See status below:"
+            git diff --ignore-space-at-eol --text dist/
+            exit 1
+          fi
+
+      - if: ${{ failure() && steps.diff.outcome == 'failure' }}
+        name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
