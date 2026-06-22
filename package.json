@@ -5,7 +5,7 @@
   "description": "GitHub Action that resolves an npm dist-tag, bumps a consumer's package.json, and emits a rich PR body (commits + grouped PRs) to feed peter-evans/create-pull-request.",
   "license": "MIT",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/index.js",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/index.js",
     "format:check": "prettier --check .",
     "format:write": "prettier --write .",
     "lint": "eslint .",
@@ -22,7 +22,7 @@
     "@eslint/compat": "^2.1.0",
     "@eslint/eslintrc": "^3.3.5",
     "@eslint/js": "^10.0.1",
-    "@types/node": "^20.14.0",
+    "@types/node": "^22.0.0",
     "@typescript-eslint/eslint-plugin": "^8.62.0",
     "@typescript-eslint/parser": "^8.62.0",
     "@vitest/eslint-plugin": "^1.6.20",
