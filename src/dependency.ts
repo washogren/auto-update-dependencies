@@ -114,16 +114,27 @@ export async function fetchCommitsWithPrs(
       repo,
       commit_sha: c.sha
     })
+    // The endpoint method's response type doesn't infer through .map under
+    // moduleResolution: bundler with @octokit/plugin-rest-endpoint-methods v17,
+    // so the element type is declared inline.
+    const prs: AssociatedPr[] = (res.data as PrAssociation[]).map((pr) => ({
+      number: pr.number,
+      title: pr.title,
+      html_url: pr.html_url,
+      body: pr.body ?? null
+    }))
     enriched.push({
       sha: c.sha,
       message: c.commit.message,
-      prs: res.data.map((pr) => ({
-        number: pr.number,
-        title: pr.title,
-        html_url: pr.html_url,
-        body: pr.body ?? null
-      }))
+      prs
     })
   }
   return enriched
+}
+
+interface PrAssociation {
+  number: number
+  title: string
+  html_url: string
+  body: string | null
 }
