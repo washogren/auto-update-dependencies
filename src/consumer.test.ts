@@ -28,9 +28,7 @@ describe('readPinnedVersion', () => {
       name: 'consumer',
       dependencies: { '@your-org/your-dependency': '1.0.0-prod.1' }
     })
-    expect(await readPinnedVersion(dir, '@your-org/your-dependency')).toBe(
-      '1.0.0-prod.1'
-    )
+    expect(await readPinnedVersion(dir, '@your-org/your-dependency')).toBe('1.0.0-prod.1')
   })
 
   it('returns the version when the package is in `devDependencies`', async () => {
@@ -104,11 +102,7 @@ describe('installExact', () => {
     }> = []
     const exec = await import('@actions/exec')
     vi.spyOn(exec, 'exec').mockImplementation(
-      async (
-        command: string,
-        args?: string[],
-        options?: { cwd?: string; env?: Record<string, string> }
-      ) => {
+      async (command: string, args?: string[], options?: { cwd?: string; env?: Record<string, string> }) => {
         calls.push({
           command,
           args: args ?? [],
@@ -132,11 +126,7 @@ describe('installExact', () => {
     })
     expect(calls).toHaveLength(1)
     expect(calls[0].command).toBe('npm')
-    expect(calls[0].args).toEqual([
-      'install',
-      '--save-exact',
-      '@your-org/your-dependency@1.0.2-dev.12'
-    ])
+    expect(calls[0].args).toEqual(['install', '--save-exact', '@your-org/your-dependency@1.0.2-dev.12'])
   })
 
   it('forwards the caller-provided cwd and env to the npm subprocess', async () => {
@@ -161,11 +151,7 @@ describe('installExact', () => {
 
   it('propagates failure when npm exits non-zero', async () => {
     const exec = await import('@actions/exec')
-    vi.spyOn(exec, 'exec').mockRejectedValue(
-      new Error('npm install failed: E404')
-    )
-    await expect(
-      installExact('missing', '1.0.0', { cwd: '/x', env: {} })
-    ).rejects.toThrow(/E404/)
+    vi.spyOn(exec, 'exec').mockRejectedValue(new Error('npm install failed: E404'))
+    await expect(installExact('missing', '1.0.0', { cwd: '/x', env: {} })).rejects.toThrow(/E404/)
   })
 })
