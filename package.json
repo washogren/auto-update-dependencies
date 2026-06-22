@@ -6,7 +6,6 @@
   "license": "MIT",
   "scripts": {
     "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/index.js",
-    "build:check": "npm run build && git diff --exit-code dist/index.js",
     "format:check": "prettier --check .",
     "format:write": "prettier --write .",
     "lint": "eslint .",
