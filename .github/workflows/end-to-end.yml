@@ -131,11 +131,14 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Close consumer auto-update PR(s)
-        # Close BEFORE commenting so the link in the PR comment lands on a
-        # closed PR whose body is frozen at this run's rendering. If we left
-        # it open, the next e2e run (or the cron) would update the PR in
-        # place and the historical artifact would be lost.
+      - name: Merge consumer auto-update PR(s)
+        # Merge BEFORE commenting so the link in the PR comment lands on a
+        # merged PR whose body is frozen at this run's rendering. Merging
+        # (rather than closing) advances `dev` exactly like the real cron flow
+        # — the next run bumps from the just-merged state — and avoids the
+        # closed-PR pile-up that accrued when each e2e run abandoned its PR.
+        # --delete-branch cleans up the auto-update branch; peter-evans
+        # recreates it on the next run.
         env:
           PR_JSON: ${{ steps.consumer_pr.outputs.pr_json }}
           ACTION_PR_NUMBER: ${{ env.ACTION_PR_NUMBER }}
@@ -143,8 +146,9 @@ jobs:
         run: |
           echo "$PR_JSON" | jq -r '.[].number' | while read -r N; do
             [ -z "$N" ] && continue
-            gh pr close "$N" -R washogren/am-consumer \
-              --comment "Closed by auto-update-dependencies#${ACTION_PR_NUMBER} (action ref \`${ACTION_PR_SHA}\`) so this PR's rendered body stays frozen as the historical e2e artifact."
+            gh pr comment "$N" -R washogren/am-consumer \
+              --body "Merged by auto-update-dependencies#${ACTION_PR_NUMBER} (action ref \`${ACTION_PR_SHA}\`) as the historical e2e artifact. Merging advances \`dev\` like the real flow and keeps this PR's rendered body frozen."
+            gh pr merge "$N" -R washogren/am-consumer --merge --delete-branch
           done
 
       - name: Comment on the action PR
