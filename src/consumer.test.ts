@@ -4,6 +4,13 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installExact, readPinnedVersion } from './consumer.js'
 
+// @actions/exec is ESM-only as of v3, which makes its `exec` export
+// non-configurable — `vi.spyOn(exec, 'exec')` throws "Cannot redefine
+// property". Replace the module with a hoisted mock fn we can reconfigure
+// per test instead.
+const execMock = vi.hoisted(() => vi.fn())
+vi.mock('@actions/exec', () => ({ exec: execMock }))
+
 let tmpDirs: string[] = []
 beforeEach(() => {
   tmpDirs = []
@@ -13,6 +20,7 @@ afterEach(async () => {
     await rm(d, { recursive: true, force: true })
   }
   vi.restoreAllMocks()
+  execMock.mockReset()
 })
 
 async function withPackageJson(json: object): Promise<string> {
@@ -100,8 +108,7 @@ describe('installExact', () => {
       cwd?: string
       env?: Record<string, string>
     }> = []
-    const exec = await import('@actions/exec')
-    vi.spyOn(exec, 'exec').mockImplementation(
+    execMock.mockImplementation(
       async (command: string, args?: string[], options?: { cwd?: string; env?: Record<string, string> }) => {
         calls.push({
           command,
@@ -150,8 +157,7 @@ describe('installExact', () => {
   })
 
   it('propagates failure when npm exits non-zero', async () => {
-    const exec = await import('@actions/exec')
-    vi.spyOn(exec, 'exec').mockRejectedValue(new Error('npm install failed: E404'))
+    execMock.mockRejectedValue(new Error('npm install failed: E404'))
     await expect(installExact('missing', '1.0.0', { cwd: '/x', env: {} })).rejects.toThrow(/E404/)
   })
 })
