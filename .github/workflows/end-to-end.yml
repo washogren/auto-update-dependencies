@@ -41,7 +41,14 @@ jobs:
   e2e:
     # Skip fork PRs — they don't receive secrets, and we don't want to
     # publish on behalf of an unverified contributor anyway.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    #
+    # Also skip Dependabot PRs — they run with the Dependabot secrets context,
+    # which does NOT include Actions secrets like E2E_TOKEN. Mirroring the
+    # token into Dependabot scope would expose it to any malicious dependency
+    # update. Verify + check-dist + super-linter + CodeQL still gate the bump;
+    # maintainers can run e2e manually post-merge if needed.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
     needs: verify
     runs-on: ubuntu-latest
     permissions:
