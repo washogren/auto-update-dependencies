@@ -5,22 +5,41 @@ updates:
     schedule:
       interval: weekly
     groups:
-      actions-minor:
+      # Majors land in their own PR — they carry breaking changes and deserve
+      # a focused review separate from the routine minor/patch churn.
+      actions-majors:
+        patterns:
+          - '*'
+        update-types:
+          - major
+      # Minor and patch bumps together — low-risk, freely mergeable.
+      actions-minor-patch:
+        patterns:
+          - '*'
         update-types:
           - minor
           - patch
 
   - package-ecosystem: npm
     directory: /
+    # Only consider a version once it has been published for 2 weeks. A fresh
+    # release is the highest-risk window for a supply-chain compromise; letting
+    # it bake means a malicious or broken publish is usually caught and yanked
+    # before Dependabot ever proposes it.
+    cooldown:
+      default-days: 14
     schedule:
       interval: weekly
     groups:
-      npm-development:
-        dependency-type: development
+      npm-majors:
+        patterns:
+          - '*'
+        update-types:
+          - major
+      # Minor and patch bumps together — one low-risk PR to fast-merge.
+      npm-minor-patch:
+        patterns:
+          - '*'
         update-types:
           - minor
-          - patch
-      npm-production:
-        dependency-type: production
-        update-types:
           - patch
