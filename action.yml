@@ -59,7 +59,7 @@ runs:
   using: composite
   steps:
     - name: Set up Node.js for npm operations
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v6
       with:
         node-version: ${{ inputs.node-version }}
         registry-url: ${{ inputs.npm-registry }}
@@ -82,7 +82,7 @@ runs:
     - name: Open or update PR
       if: steps.bump.outputs.changed == 'true'
       id: cpr
-      uses: peter-evans/create-pull-request@v6
+      uses: peter-evans/create-pull-request@v8
       with:
         token: ${{ inputs.token }}
         base: ${{ inputs.base-branch || github.ref_name }}
