@@ -19656,7 +19656,10 @@ var require_dist = __commonJS({
 // src/index.ts
 var index_exports = {};
 __export(index_exports, {
+  classifySemverChange: () => classifySemverChange,
+  parseAutoMergeWhenSemver: () => parseAutoMergeWhenSemver,
   run: () => run,
+  shouldAutoMerge: () => shouldAutoMerge,
   slugForBranch: () => slugForBranch
 });
 module.exports = __toCommonJS(index_exports);
@@ -20876,6 +20879,17 @@ function getInput(name, options) {
     return val;
   }
   return val.trim();
+}
+function getBooleanInput(name, options) {
+  const trueValue = ["true", "True", "TRUE"];
+  const falseValue = ["false", "False", "FALSE"];
+  const val = getInput(name, options);
+  if (trueValue.includes(val))
+    return true;
+  if (falseValue.includes(val))
+    return false;
+  throw new TypeError(`Input does not meet YAML 1.2 "Core Schema" specification: ${name}
+Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
 }
 function setOutput(name, value) {
   const filePath = process.env["GITHUB_OUTPUT"] || "";
@@ -24941,6 +24955,7 @@ async function run(inputs, deps) {
       changed: true,
       current,
       latest,
+      shouldAutoMerge: shouldAutoMerge(current, latest, inputs),
       prTitle: `Bump ${inputs.package} to ${latest} (${inputs.tag})`,
       prBranch: `auto-update/${slugForBranch(inputs.package)}-${inputs.tag}`,
       prCommitMessage: `Track ${inputs.package} ${inputs.tag} -> ${latest}`,
@@ -24950,6 +24965,42 @@ async function run(inputs, deps) {
 }
 function slugForBranch(pkg) {
   return pkg.replace(/^@/, "").replace(/[^A-Za-z0-9._-]/g, "-");
+}
+var SEMVER_CHANGES = ["major", "minor", "patch"];
+var SEMVER_CORE = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/;
+function parseAutoMergeWhenSemver(raw) {
+  const tokens = raw.split(/[\s,]+/).map((t) => t.trim().toLowerCase()).filter((t) => t.length > 0);
+  const seen = /* @__PURE__ */ new Set();
+  for (const token of tokens) {
+    if (!SEMVER_CHANGES.includes(token)) {
+      throw new Error(
+        `Invalid 'auto-merge-when-semver' value '${token}'. Expected a comma-separated list of: ${SEMVER_CHANGES.join(", ")}.`
+      );
+    }
+    seen.add(token);
+  }
+  return SEMVER_CHANGES.filter((c) => seen.has(c));
+}
+function classifySemverChange(prev, next) {
+  const prevMatch = SEMVER_CORE.exec(prev);
+  const nextMatch = SEMVER_CORE.exec(next);
+  if (!prevMatch || !nextMatch) {
+    const offender = !prevMatch ? prev : next;
+    throw new Error(
+      `Cannot classify the semver change: version '${offender}' is not in major.minor.patch form. 'auto-merge-when-semver' requires both the pinned and resolved versions to be valid semver.`
+    );
+  }
+  const [, prevMajor, prevMinor] = prevMatch;
+  const [, nextMajor, nextMinor] = nextMatch;
+  if (prevMajor !== nextMajor) return "major";
+  if (prevMinor !== nextMinor) return "minor";
+  return "patch";
+}
+function shouldAutoMerge(prev, next, inputs) {
+  if (!inputs.autoMerge) return false;
+  if (inputs.autoMergeWhenSemver.length === 0) return true;
+  const change = classifySemverChange(prev, next);
+  return inputs.autoMergeWhenSemver.includes(change);
 }
 function realDeps() {
   const cwd = process.env.GITHUB_WORKSPACE ?? process.cwd();
@@ -24970,6 +25021,7 @@ function applyOutputs(outputs) {
   setOutput("changed", String(outputs.changed));
   if (outputs.current) setOutput("current", outputs.current);
   if (outputs.latest) setOutput("latest", outputs.latest);
+  if (outputs.shouldAutoMerge !== void 0) setOutput("should-auto-merge", String(outputs.shouldAutoMerge));
   if (outputs.prTitle) setOutput("pr-title", outputs.prTitle);
   if (outputs.prBranch) setOutput("pr-branch", outputs.prBranch);
   if (outputs.prCommitMessage) setOutput("pr-commit-message", outputs.prCommitMessage);
@@ -24981,7 +25033,9 @@ async function main() {
     tag: getInput("tag", { required: true }),
     registry: getInput("npm-registry") || "https://npm.pkg.github.com",
     scope: getInput("npm-scope"),
-    token: getInput("token", { required: true })
+    token: getInput("token", { required: true }),
+    autoMerge: getBooleanInput("auto-merge"),
+    autoMergeWhenSemver: parseAutoMergeWhenSemver(getInput("auto-merge-when-semver"))
   };
   const result = await run(inputs, realDeps());
   applyOutputs(result.outputs);
@@ -24996,7 +25050,10 @@ if (process.env.VITEST !== "true") {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  classifySemverChange,
+  parseAutoMergeWhenSemver,
   run,
+  shouldAutoMerge,
   slugForBranch
 });
 /*! Bundled license information:

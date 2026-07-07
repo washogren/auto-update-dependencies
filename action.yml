@@ -46,6 +46,14 @@ inputs:
     description: 'Merge method used when auto-merge is enabled: merge, squash, or rebase.'
     required: false
     default: 'squash'
+  auto-merge-when-semver:
+    description:
+      'Restrict auto-merge to specific semver change types. A comma-separated list of major, minor, patch. When empty
+      (the default), auto-merge applies to every bump without enforcing semver formatting. When set, both the pinned and
+      resolved versions must be valid semver, and the PR only auto-merges if the change matches one of the listed types
+      (prerelease-only bumps count as patch).'
+    required: false
+    default: ''
 outputs:
   changed:
     description: 'true if the dist-tag points to a newer version than what is pinned in package.json; false otherwise.'
@@ -86,6 +94,8 @@ runs:
         INPUT_NPM_REGISTRY: ${{ inputs.npm-registry }}
         INPUT_NPM_SCOPE: ${{ inputs.npm-scope }}
         INPUT_TOKEN: ${{ inputs.token }}
+        INPUT_AUTO_MERGE: ${{ inputs.auto-merge }}
+        INPUT_AUTO_MERGE_WHEN_SEMVER: ${{ inputs.auto-merge-when-semver }}
         NODE_AUTH_TOKEN: ${{ inputs.token }}
       run: node "${{ github.action_path }}/dist/index.js"
 
@@ -103,7 +113,7 @@ runs:
         body-path: ${{ steps.bump.outputs.pr-body-path }}
 
     - name: Enable auto-merge
-      if: steps.cpr.outputs.pull-request-operation == 'created' && inputs.auto-merge == 'true'
+      if: steps.cpr.outputs.pull-request-operation == 'created' && steps.bump.outputs.should-auto-merge == 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
