@@ -42,18 +42,19 @@ is still responsible for the surrounding workflow concerns: triggers, `permissio
 
 ## Inputs
 
-| Name                | Required | Default                      | Description                                                                                           |
-| ------------------- | -------- | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `package`           | yes      |                              | The npm package name (e.g. `@your-org/your-dependency`).                                              |
-| `tag`               | yes      |                              | The dist-tag to track.                                                                                |
-| `token`             | yes      |                              | Token with package:read on the registry, repo:read on the dependency, and repo:write on the consumer. |
-| `base-branch`       | no       | `github.ref_name`            | The branch the PR targets.                                                                            |
-| `npm-registry`      | no       | `https://npm.pkg.github.com` | Registry the package is hosted on.                                                                    |
-| `npm-scope`         | no       |                              | Scope to bind to the registry (e.g. `@your-org`).                                                     |
-| `node-version`      | no       | `20`                         | Node.js version used by the internal `actions/setup-node` step.                                       |
-| `delete-branch`     | no       | `true`                       | Forwarded to `peter-evans/create-pull-request` — delete the auto-update branch when the PR closes.    |
-| `auto-merge`        | no       | `false`                      | Enable GitHub auto-merge on a newly-created PR so it merges once required checks pass.                |
-| `auto-merge-method` | no       | `squash`                     | Merge method when `auto-merge` is on: `merge`, `squash`, or `rebase`.                                 |
+| Name                     | Required | Default                      | Description                                                                                                                    |
+| ------------------------ | -------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `package`                | yes      |                              | The npm package name (e.g. `@your-org/your-dependency`).                                                                       |
+| `tag`                    | yes      |                              | The dist-tag to track.                                                                                                         |
+| `token`                  | yes      |                              | Token with package:read on the registry, repo:read on the dependency, and repo:write on the consumer.                          |
+| `base-branch`            | no       | `github.ref_name`            | The branch the PR targets.                                                                                                     |
+| `npm-registry`           | no       | `https://npm.pkg.github.com` | Registry the package is hosted on.                                                                                             |
+| `npm-scope`              | no       |                              | Scope to bind to the registry (e.g. `@your-org`).                                                                              |
+| `node-version`           | no       | `20`                         | Node.js version used by the internal `actions/setup-node` step.                                                                |
+| `delete-branch`          | no       | `true`                       | Forwarded to `peter-evans/create-pull-request` — delete the auto-update branch when the PR closes.                             |
+| `auto-merge`             | no       | `false`                      | Enable GitHub auto-merge on a newly-created PR so it merges once required checks pass.                                         |
+| `auto-merge-method`      | no       | `squash`                     | Merge method when `auto-merge` is on: `merge`, `squash`, or `rebase`.                                                          |
+| `auto-merge-when-semver` | no       |                              | Restrict auto-merge to specific bump types: a comma-separated list of `major`, `minor`, `patch`. Empty means merge every bump. |
 
 ## Outputs
 
@@ -81,6 +82,25 @@ once all required status checks pass. Prerequisites:
 
 Auto-merge is only enabled on the `created` operation — re-running against an existing open PR (`updated`) leaves its
 existing merge state untouched.
+
+### Restricting auto-merge by semver
+
+By default, `auto-merge: true` merges every bump. Set `auto-merge-when-semver` to a comma-separated list of `major`,
+`minor`, and/or `patch` to auto-merge only the change types you trust to land unattended — for example, let patches and
+minors merge on their own while a major waits for a human:
+
+```yaml
+with:
+  auto-merge: true
+  auto-merge-when-semver: minor, patch
+```
+
+- When `auto-merge-when-semver` is **empty** (the default), no semver formatting is enforced — every bump auto-merges,
+  including versions that aren't valid semver.
+- When it is **set**, both the pinned and resolved versions must be valid semver. If either isn't, the action fails
+  loudly rather than guessing
+- A **prerelease-only** bump (same `major.minor.patch`, e.g. `1.0.2-dev.11` → `1.0.2-dev.12`) counts as `patch`. The
+  watched dist-tag is what pins dev/staging/prod, so the prerelease segment is noise below the patch level.
 
 ## How the changelog is built
 
@@ -142,11 +162,11 @@ these for you):
 
 ```bash
 npm install
-npm run lint        # tsc --noEmit
+npm run lint        # eslint .
+npm run typecheck   # tsc --noEmit
 npm test            # vitest run — covers all four modules + the action.yml schema
 npm test -- -u      # regenerate the changelog inline snapshots after an intentional rendering change
 npm run build       # esbuild bundle to dist/index.js
-npm run build:check # build + fail if dist/ is out of date
 ```
 
 ### Source layout
@@ -165,4 +185,5 @@ The `Deps` interface lets the orchestrator tests inject fakes for every I/O boun
 Octokit.
 
 The bundled `dist/index.js` is committed because GitHub Actions does not run `npm install` for the JS half of a
-composite action either. CI verifies it stays fresh via `npm run build:check`.
+composite action either. The `check-dist.yml` workflow verifies it stays fresh: it rebuilds from source and fails if the
+committed `dist/` differs.
