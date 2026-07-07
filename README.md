@@ -158,7 +158,9 @@ Deliberately do **not** pass `registry-url`/`scope` to `setup-node` here: that w
 `.npmrc`, which makes the private registry the default for every package and 404s public deps. The bundle binds only the
 scope (from `INPUT_NPM_REGISTRY`/`INPUT_NPM_SCOPE`) and the auth token, leaving the default as npmjs.org.
 
-`core.getInput('foo-bar')` reads `INPUT_FOO_BAR` — uppercase, hyphens become underscores.
+Each input maps to `INPUT_<NAME>` — uppercase, hyphens become underscores (e.g. `auto-merge` → `INPUT_AUTO_MERGE`). The
+action reads these via its own helper rather than `core.getInput`, which in `@actions/core` v3 keeps the hyphen
+(`INPUT_AUTO-MERGE`) and wouldn't match.
 
 ## Development
 
