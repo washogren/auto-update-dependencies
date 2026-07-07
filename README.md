@@ -144,8 +144,6 @@ these for you):
 - uses: actions/setup-node@v6
   with:
     node-version: 20
-    registry-url: https://npm.pkg.github.com
-    scope: '@your-org'
 - run: node $GITHUB_ACTION_PATH/dist/index.js
   env:
     INPUT_PACKAGE: '@your-org/your-dependency'
@@ -155,6 +153,10 @@ these for you):
     INPUT_TOKEN: ${{ secrets.GH_PACKAGES_READ }}
     NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_READ }}
 ```
+
+Deliberately do **not** pass `registry-url`/`scope` to `setup-node` here: that writes a bare default-registry line into
+`.npmrc`, which makes the private registry the default for every package and 404s public deps. The bundle binds only the
+scope (from `INPUT_NPM_REGISTRY`/`INPUT_NPM_SCOPE`) and the auth token, leaving the default as npmjs.org.
 
 `core.getInput('foo-bar')` reads `INPUT_FOO_BAR` — uppercase, hyphens become underscores.
 
@@ -174,12 +176,12 @@ npm run build       # esbuild bundle to dist/index.js
 The four source modules are split by which repository each one interacts with, plus a pure renderer. Each has a sibling
 `*.test.ts`.
 
-| File            | Responsibility                                                                                                                                                     |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `dependency.ts` | Reads about the dependency package: `npm dist-tag ls`, `npm view ... gitHead/repository.url`, `octokit compare`, and per-commit PR association. Read-only.         |
-| `consumer.ts`   | Reads from and writes to the consumer's checkout: `package.json` inspection, `npm install --save-exact`.                                                           |
-| `changelog.ts`  | Pure Markdown rendering. No I/O, no async. Tests use inline snapshots so the expected output is visible alongside each case.                                       |
-| `index.ts`      | Action entrypoint: declares `Inputs`/`Outputs`/`Deps`, wires `realDeps` for production, orchestrates the flow in `run()`, and applies outputs via `@actions/core`. |
+| File            | Responsibility                                                                                                                                                             |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dependency.ts` | Reads about the dependency package: `npm dist-tag ls`, `npm view ... gitHead/repository.url`, `octokit compare`, and per-commit PR association. Read-only.                 |
+| `consumer.ts`   | Reads from and writes to the consumer's checkout: `package.json` inspection, and a lockfile-only exact-pin `npm install` (scoped registry only, never the global default). |
+| `changelog.ts`  | Pure Markdown rendering. No I/O, no async. Tests use inline snapshots so the expected output is visible alongside each case.                                               |
+| `index.ts`      | Action entrypoint: declares `Inputs`/`Outputs`/`Deps`, wires `realDeps` for production, orchestrates the flow in `run()`, and applies outputs via `@actions/core`.         |
 
 The `Deps` interface lets the orchestrator tests inject fakes for every I/O boundary without touching `@actions/exec` or
 Octokit.

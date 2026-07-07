@@ -8,7 +8,9 @@ import { readPinnedVersion } from './consumer.js'
 import type { AssociatedPr, CommitWithPrs } from './dependency.js'
 import {
   classifySemverChange,
+  npmRegistryEnv,
   parseAutoMergeWhenSemver,
+  registryAuthKey,
   run,
   shouldAutoMerge,
   slugForBranch,
@@ -280,6 +282,61 @@ describe('slugForBranch', () => {
 
   it('replaces other branch-unsafe characters with hyphens', () => {
     expect(slugForBranch('@scope/foo bar~baz')).toBe('scope-foo-bar-baz')
+  })
+})
+
+describe('registryAuthKey', () => {
+  it('strips the protocol and trailing slash and appends :_authToken', () => {
+    expect(registryAuthKey('https://npm.pkg.github.com')).toBe('//npm.pkg.github.com/:_authToken')
+    expect(registryAuthKey('https://npm.pkg.github.com/')).toBe('//npm.pkg.github.com/:_authToken')
+    expect(registryAuthKey('http://localhost:4873')).toBe('//localhost:4873/:_authToken')
+  })
+})
+
+describe('npmRegistryEnv', () => {
+  const inputs: Inputs = {
+    package: '@qsrsoft/qsr-data-model',
+    tag: 'latest',
+    registry: 'https://npm.pkg.github.com',
+    scope: '@qsrsoft',
+    token: 'secret-token',
+    autoMerge: false,
+    autoMergeWhenSemver: []
+  }
+
+  it('binds only the scoped registry, never the global default', () => {
+    // Setting npm_config_registry would make the private registry the default
+    // for every package, so public deps like aws-cdk-lib resolve against it and
+    // 404. The action must only associate the scope.
+    const env = npmRegistryEnv(inputs)
+    expect(env['npm_config_registry']).toBeUndefined()
+    expect(env['npm_config_@qsrsoft:registry']).toBe('https://npm.pkg.github.com')
+  })
+
+  it('uses the literal @scope:registry key, not the underscore-mangled form npm ignores', () => {
+    const env = npmRegistryEnv(inputs)
+    // The old `npm_config_<scope>_registry` form was silently unrecognized.
+    expect(env['npm_config_qsrsoft_registry']).toBeUndefined()
+    expect(Object.keys(env)).toContain('npm_config_@qsrsoft:registry')
+  })
+
+  it('binds the auth token to the registry host', () => {
+    const env = npmRegistryEnv(inputs)
+    expect(env['NODE_AUTH_TOKEN']).toBe('secret-token')
+    expect(env['npm_config_//npm.pkg.github.com/:_authToken']).toBe('secret-token')
+  })
+
+  it('normalizes a bare scope without a leading @', () => {
+    const env = npmRegistryEnv({ ...inputs, scope: 'qsrsoft' })
+    expect(env['npm_config_@qsrsoft:registry']).toBe('https://npm.pkg.github.com')
+  })
+
+  it('sets only the auth token (no registry binding) when no scope is given', () => {
+    // Without a scope there is nothing to associate; we still forward the token
+    // via NODE_AUTH_TOKEN but must not touch registry config at all.
+    const env = npmRegistryEnv({ ...inputs, scope: '' })
+    expect(env['NODE_AUTH_TOKEN']).toBe('secret-token')
+    expect(Object.keys(env).some((k) => k.startsWith('npm_config_'))).toBe(false)
   })
 })
 
