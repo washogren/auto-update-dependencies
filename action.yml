@@ -77,11 +77,13 @@ runs:
   using: composite
   steps:
     - name: Set up Node.js for npm operations
+      # Intentionally NO registry-url/scope here: setup-node would write a bare
+      # `registry=<npm-registry>` default into .npmrc, making the private
+      # registry the global default so public deps 404. The bump step binds only
+      # `@scope:registry` + the auth token itself (see npmRegistryEnv).
       uses: actions/setup-node@v6
       with:
         node-version: ${{ inputs.node-version }}
-        registry-url: ${{ inputs.npm-registry }}
-        scope: ${{ inputs.npm-scope }}
 
     - name: Resolve dist-tag, bump package.json, render PR body
       id: bump
