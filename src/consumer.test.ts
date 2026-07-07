@@ -122,10 +122,14 @@ describe('installExact', () => {
     return { calls }
   }
 
-  it('runs `npm install --save-exact <pkg>@<version>` so the bump pins to the exact version', async () => {
+  it('runs a lockfile-only, exact-pin install so the bump avoids downloading the full tree', async () => {
     // Without --save-exact, npm prefixes the version with ^ and the next run's
     // current/latest comparison would be a string mismatch even when nothing
-    // moved.
+    // moved. --package-lock-only keeps npm from resolving/downloading every
+    // transitive public dep just to bump one pin (that full resolution is what
+    // surfaced the global-default-registry bug), while still refreshing the
+    // lockfile. --ignore-scripts and --no-audit drop install scripts and the
+    // audit round-trip.
     const { calls } = await spyExec()
     await installExact('@your-org/your-dependency', '1.0.2-dev.12', {
       cwd: '/some/workspace',
@@ -133,7 +137,14 @@ describe('installExact', () => {
     })
     expect(calls).toHaveLength(1)
     expect(calls[0].command).toBe('npm')
-    expect(calls[0].args).toEqual(['install', '--save-exact', '@your-org/your-dependency@1.0.2-dev.12'])
+    expect(calls[0].args).toEqual([
+      'install',
+      '--save-exact',
+      '--package-lock-only',
+      '--ignore-scripts',
+      '--no-audit',
+      '@your-org/your-dependency@1.0.2-dev.12'
+    ])
   })
 
   it('forwards the caller-provided cwd and env to the npm subprocess', async () => {

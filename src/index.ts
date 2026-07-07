@@ -54,14 +54,7 @@ export interface RunResult {
 }
 
 export async function run(inputs: Inputs, deps: Deps): Promise<RunResult> {
-  const extra: Record<string, string> = {
-    NODE_AUTH_TOKEN: inputs.token,
-    npm_config_registry: inputs.registry
-  }
-  if (inputs.scope) {
-    extra[`npm_config_${inputs.scope.replace(/^@/, '').replace(/-/g, '_')}_registry`] = inputs.registry
-  }
-  const npmCtx: NpmContext = { cwd: deps.cwd, env: envFromProcess(extra) }
+  const npmCtx: NpmContext = { cwd: deps.cwd, env: envFromProcess(npmRegistryEnv(inputs)) }
 
   const current = await deps.readPinnedVersion(deps.cwd, inputs.package)
   if (!current) {
@@ -144,6 +137,34 @@ export async function run(inputs: Inputs, deps: Deps): Promise<RunResult> {
 
 export function slugForBranch(pkg: string): string {
   return pkg.replace(/^@/, '').replace(/[^A-Za-z0-9._-]/g, '-')
+}
+
+// Build the npm config env vars for every npm invocation. The action only ever
+// needs a SCOPED association to the (possibly private) registry, never a global
+// default: setting `npm_config_registry` makes that registry the default for
+// EVERY package, so public deps like `aws-cdk-lib` get resolved against it and
+// 404. Instead we bind only `@scope:registry` and the host auth token, leaving
+// the default registry (registry.npmjs.org) untouched.
+//
+// npm reads config from env vars named `npm_config_<key>`, where <key> is the
+// literal .npmrc key — including `@scope:registry` and `//host/:_authToken`.
+// (The earlier `npm_config_<scope>_registry` form was silently ignored by npm.)
+export function npmRegistryEnv(inputs: Inputs): Record<string, string> {
+  const env: Record<string, string> = { NODE_AUTH_TOKEN: inputs.token }
+  if (inputs.scope) {
+    const scope = inputs.scope.startsWith('@') ? inputs.scope : `@${inputs.scope}`
+    env[`npm_config_${scope}:registry`] = inputs.registry
+    env[`npm_config_${registryAuthKey(inputs.registry)}`] = inputs.token
+  }
+  return env
+}
+
+// Derive the .npmrc auth key for a registry URL: the host + path with the
+// protocol stripped and a trailing slash, e.g.
+// https://npm.pkg.github.com -> //npm.pkg.github.com/:_authToken
+export function registryAuthKey(registry: string): string {
+  const withoutProtocol = registry.replace(/^https?:/, '').replace(/\/+$/, '')
+  return `${withoutProtocol}/:_authToken`
 }
 
 export type SemverChange = 'major' | 'minor' | 'patch'
