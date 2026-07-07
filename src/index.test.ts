@@ -6,14 +6,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
 import { readPinnedVersion } from './consumer.js'
 import type { AssociatedPr, CommitWithPrs } from './dependency.js'
-import { run, slugForBranch, type Deps, type Inputs } from './index.js'
+import {
+  classifySemverChange,
+  parseAutoMergeWhenSemver,
+  run,
+  shouldAutoMerge,
+  slugForBranch,
+  type Deps,
+  type Inputs
+} from './index.js'
 
 const baseInputs: Inputs = {
   package: '@your-org/your-dependency',
   tag: 'dev',
   registry: 'https://npm.pkg.github.com',
   scope: '@your-org',
-  token: 'fake-token'
+  token: 'fake-token',
+  autoMerge: false,
+  autoMergeWhenSemver: []
 }
 
 function commit(sha: string, message: string, prs: AssociatedPr[] = []): CommitWithPrs {
@@ -213,6 +223,24 @@ describe('run — happy path', () => {
     expect(writtenBody).toContain('oldest')
   })
 
+  it('emits shouldAutoMerge from the auto-merge inputs and the classified bump', async () => {
+    const { deps, cwd } = await makeHarness({
+      // 1.0.0-prod.1 -> 1.0.2-dev.12 is a patch bump (core 1.0.0 -> 1.0.2).
+      readPinnedVersion: vi.fn(async () => '1.0.0-prod.1'),
+      readDistTag: vi.fn(async () => '1.0.2-dev.12')
+    })
+    cleanupPaths.push(cwd, deps.runnerTemp)
+
+    const patchAllowed = await run({ ...baseInputs, autoMerge: true, autoMergeWhenSemver: ['patch'] }, deps)
+    expect(patchAllowed.outputs.shouldAutoMerge).toBe(true)
+
+    const minorOnly = await run({ ...baseInputs, autoMerge: true, autoMergeWhenSemver: ['minor'] }, deps)
+    expect(minorOnly.outputs.shouldAutoMerge).toBe(false)
+
+    const off = await run({ ...baseInputs, autoMerge: false }, deps)
+    expect(off.outputs.shouldAutoMerge).toBe(false)
+  })
+
   it('writes the rendered body to a real file when writeFile is the real impl', async () => {
     const realCwd = await mkdtemp(join(tmpdir(), 'aud-real-'))
     const realRunnerTemp = await mkdtemp(join(tmpdir(), 'aud-real-runner-'))
@@ -252,6 +280,79 @@ describe('slugForBranch', () => {
 
   it('replaces other branch-unsafe characters with hyphens', () => {
     expect(slugForBranch('@scope/foo bar~baz')).toBe('scope-foo-bar-baz')
+  })
+})
+
+describe('parseAutoMergeWhenSemver', () => {
+  it('returns an empty list for an empty or whitespace-only input', () => {
+    expect(parseAutoMergeWhenSemver('')).toEqual([])
+    expect(parseAutoMergeWhenSemver('   ')).toEqual([])
+  })
+
+  it('parses a comma-separated list, tolerating whitespace and case', () => {
+    expect(parseAutoMergeWhenSemver('major, Minor,  PATCH')).toEqual(['major', 'minor', 'patch'])
+  })
+
+  it('deduplicates and normalizes to major/minor/patch order regardless of input order', () => {
+    expect(parseAutoMergeWhenSemver('patch, patch, major')).toEqual(['major', 'patch'])
+  })
+
+  it('throws on an unrecognized token rather than silently dropping it', () => {
+    expect(() => parseAutoMergeWhenSemver('minor, prerelease')).toThrow(
+      /Invalid 'auto-merge-when-semver' value 'prerelease'/
+    )
+  })
+})
+
+describe('classifySemverChange', () => {
+  it('classifies a major, minor, and patch bump', () => {
+    expect(classifySemverChange('1.2.3', '2.0.0')).toBe('major')
+    expect(classifySemverChange('1.2.3', '1.3.0')).toBe('minor')
+    expect(classifySemverChange('1.2.3', '1.2.4')).toBe('patch')
+  })
+
+  it('treats a prerelease-only bump (same core) as patch', () => {
+    expect(classifySemverChange('1.0.2-dev.11', '1.0.2-dev.12')).toBe('patch')
+  })
+
+  it('prioritizes the most significant differing segment', () => {
+    // Major differs even though minor/patch also change.
+    expect(classifySemverChange('1.9.9', '2.0.0')).toBe('major')
+  })
+
+  it('throws naming the offending version when either side is not semver', () => {
+    expect(() => classifySemverChange('1.2', '1.3.0')).toThrow(/version '1\.2' is not in major\.minor\.patch form/)
+    expect(() => classifySemverChange('1.2.3', 'latest')).toThrow(/version 'latest' is not in major\.minor\.patch form/)
+  })
+})
+
+describe('shouldAutoMerge', () => {
+  const withAutoMerge = (semver: Inputs['autoMergeWhenSemver']): Inputs => ({
+    ...baseInputs,
+    autoMerge: true,
+    autoMergeWhenSemver: semver
+  })
+
+  it('is false when auto-merge is off, regardless of the semver filter', () => {
+    expect(shouldAutoMerge('1.0.0', '2.0.0', { ...baseInputs, autoMerge: false })).toBe(false)
+  })
+
+  it('is true for any bump when auto-merge is on and no semver filter is set', () => {
+    // Non-semver versions are allowed through unclassified when the filter is empty.
+    expect(shouldAutoMerge('1.0.0-dev.1', 'weird-tag', withAutoMerge([]))).toBe(true)
+  })
+
+  it('merges only when the classified change is in the filter', () => {
+    expect(shouldAutoMerge('1.0.0', '1.0.1', withAutoMerge(['patch']))).toBe(true)
+    expect(shouldAutoMerge('1.0.0', '1.1.0', withAutoMerge(['patch']))).toBe(false)
+    expect(shouldAutoMerge('1.0.0', '2.0.0', withAutoMerge(['minor', 'patch']))).toBe(false)
+    expect(shouldAutoMerge('1.0.0', '1.1.0', withAutoMerge(['minor', 'patch']))).toBe(true)
+  })
+
+  it('throws when the filter is set but a version is not semver', () => {
+    expect(() => shouldAutoMerge('1.0.0', 'latest', withAutoMerge(['patch']))).toThrow(
+      /not in major\.minor\.patch form/
+    )
   })
 })
 
@@ -319,7 +420,15 @@ describe('action.yml — input/env mapping', () => {
     const env = bump!.env ?? {}
 
     // core.getInput('foo-bar') reads INPUT_FOO_BAR — uppercase, hyphens become underscores.
-    const required = ['INPUT_PACKAGE', 'INPUT_TAG', 'INPUT_NPM_REGISTRY', 'INPUT_NPM_SCOPE', 'INPUT_TOKEN']
+    const required = [
+      'INPUT_PACKAGE',
+      'INPUT_TAG',
+      'INPUT_NPM_REGISTRY',
+      'INPUT_NPM_SCOPE',
+      'INPUT_TOKEN',
+      'INPUT_AUTO_MERGE',
+      'INPUT_AUTO_MERGE_WHEN_SEMVER'
+    ]
     for (const key of required) {
       expect(env[key], `missing env mapping: ${key}`).toBeDefined()
     }
@@ -359,7 +468,9 @@ describe('action.yml — auto-merge', () => {
     expect(mergeIdx).toBeGreaterThan(cprIdx)
     const merge = steps[mergeIdx]
     expect(merge.if).toMatch(/steps\.cpr\.outputs\.pull-request-operation\s*==\s*'created'/)
-    expect(merge.if).toMatch(/inputs\.auto-merge\s*==\s*'true'/)
+    // The bump step computes the semver-aware decision; the gate defers to it
+    // rather than re-checking inputs.auto-merge directly.
+    expect(merge.if).toMatch(/steps\.bump\.outputs\.should-auto-merge\s*==\s*'true'/)
   })
 
   it('comments before merging and honors the configured merge method', async () => {
