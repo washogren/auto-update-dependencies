@@ -36,6 +36,16 @@ inputs:
       peter-evans/create-pull-request.'
     required: false
     default: 'true'
+  auto-merge:
+    description:
+      'Enable GitHub auto-merge on the PR so it merges once required checks pass. Requires "Allow auto-merge" in repo
+      settings and a branch protection rule / required status check to gate on.'
+    required: false
+    default: 'false'
+  auto-merge-method:
+    description: 'Merge method used when auto-merge is enabled: merge, squash, or rebase.'
+    required: false
+    default: 'squash'
 outputs:
   changed:
     description: 'true if the dist-tag points to a newer version than what is pinned in package.json; false otherwise.'
@@ -91,3 +101,15 @@ runs:
         title: ${{ steps.bump.outputs.pr-title }}
         commit-message: ${{ steps.bump.outputs.pr-commit-message }}
         body-path: ${{ steps.bump.outputs.pr-body-path }}
+
+    - name: Enable auto-merge
+      if: steps.cpr.outputs.pull-request-operation == 'created' && inputs.auto-merge == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
+        MERGE_METHOD: ${{ inputs.auto-merge-method }}
+      run: |
+        gh pr comment "$PR_NUMBER" --body \
+          "🤖 Auto-merge enabled by \`auto-update-dependencies\` with the **${MERGE_METHOD}** method. This PR will merge automatically once all required status checks pass."
+        gh pr merge "$PR_NUMBER" --auto --"$MERGE_METHOD"
