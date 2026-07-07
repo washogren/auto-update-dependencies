@@ -350,6 +350,30 @@ describe('action.yml — peter-evans wiring', () => {
   })
 })
 
+describe('action.yml — auto-merge', () => {
+  it('runs an auto-merge step after peter-evans, gated on created + auto-merge', async () => {
+    const yml = await loadActionYml()
+    const steps = yml.runs.steps
+    const cprIdx = steps.findIndex((s) => (s.uses ?? '').startsWith('peter-evans/create-pull-request'))
+    const mergeIdx = steps.findIndex((s) => (s.run ?? '').includes('gh pr merge'))
+    expect(mergeIdx).toBeGreaterThan(cprIdx)
+    const merge = steps[mergeIdx]
+    expect(merge.if).toMatch(/steps\.cpr\.outputs\.pull-request-operation\s*==\s*'created'/)
+    expect(merge.if).toMatch(/inputs\.auto-merge\s*==\s*'true'/)
+  })
+
+  it('comments before merging and honors the configured merge method', async () => {
+    const yml = await loadActionYml()
+    const merge = yml.runs.steps.find((s) => (s.run ?? '').includes('gh pr merge'))
+    const run = merge!.run!
+    // Comment must precede the merge enable.
+    expect(run.indexOf('gh pr comment')).toBeGreaterThanOrEqual(0)
+    expect(run.indexOf('gh pr comment')).toBeLessThan(run.indexOf('gh pr merge'))
+    expect(run).toContain('--auto')
+    expect(run).toContain('$MERGE_METHOD')
+  })
+})
+
 describe('action.yml — outputs', () => {
   it('exposes pr-number, pr-url, and pr-operation from peter-evans', async () => {
     const yml = await loadActionYml()

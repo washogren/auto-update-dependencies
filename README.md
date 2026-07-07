@@ -42,16 +42,18 @@ is still responsible for the surrounding workflow concerns: triggers, `permissio
 
 ## Inputs
 
-| Name            | Required | Default                      | Description                                                                                           |
-| --------------- | -------- | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `package`       | yes      |                              | The npm package name (e.g. `@your-org/your-dependency`).                                              |
-| `tag`           | yes      |                              | The dist-tag to track.                                                                                |
-| `token`         | yes      |                              | Token with package:read on the registry, repo:read on the dependency, and repo:write on the consumer. |
-| `base-branch`   | no       | `github.ref_name`            | The branch the PR targets.                                                                            |
-| `npm-registry`  | no       | `https://npm.pkg.github.com` | Registry the package is hosted on.                                                                    |
-| `npm-scope`     | no       |                              | Scope to bind to the registry (e.g. `@your-org`).                                                     |
-| `node-version`  | no       | `20`                         | Node.js version used by the internal `actions/setup-node` step.                                       |
-| `delete-branch` | no       | `true`                       | Forwarded to `peter-evans/create-pull-request` — delete the auto-update branch when the PR closes.    |
+| Name                | Required | Default                      | Description                                                                                           |
+| ------------------- | -------- | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `package`           | yes      |                              | The npm package name (e.g. `@your-org/your-dependency`).                                              |
+| `tag`               | yes      |                              | The dist-tag to track.                                                                                |
+| `token`             | yes      |                              | Token with package:read on the registry, repo:read on the dependency, and repo:write on the consumer. |
+| `base-branch`       | no       | `github.ref_name`            | The branch the PR targets.                                                                            |
+| `npm-registry`      | no       | `https://npm.pkg.github.com` | Registry the package is hosted on.                                                                    |
+| `npm-scope`         | no       |                              | Scope to bind to the registry (e.g. `@your-org`).                                                     |
+| `node-version`      | no       | `20`                         | Node.js version used by the internal `actions/setup-node` step.                                       |
+| `delete-branch`     | no       | `true`                       | Forwarded to `peter-evans/create-pull-request` — delete the auto-update branch when the PR closes.    |
+| `auto-merge`        | no       | `false`                      | Enable GitHub auto-merge on a newly-created PR so it merges once required checks pass.                |
+| `auto-merge-method` | no       | `squash`                     | Merge method when `auto-merge` is on: `merge`, `squash`, or `rebase`.                                 |
 
 ## Outputs
 
@@ -63,6 +65,22 @@ is still responsible for the surrounding workflow concerns: triggers, `permissio
 | `pr-number`    | The created/updated PR number (empty if no PR was opened).        |
 | `pr-url`       | The created/updated PR URL (empty if no PR was opened).           |
 | `pr-operation` | `created`, `updated`, `closed`, or `none` — what peter-evans did. |
+
+## Auto-merge
+
+Set `auto-merge: true` to have the action enable GitHub auto-merge on a newly-created PR. It posts a comment noting that
+auto-merge was enabled and the merge method, then runs `gh pr merge --auto --<method>`. The PR then merges on its own
+once all required status checks pass. Prerequisites:
+
+- **"Allow auto-merge" must be enabled** in the repo's Settings → General.
+- **A branch protection rule with at least one required status check** must gate the base branch — auto-merge needs
+  something to wait on, otherwise GitHub rejects it.
+- **Use a PAT / App token, not the default `GITHUB_TOKEN`.** A PR merged via a `GITHUB_TOKEN`-created PR won't trigger
+  downstream workflows (GitHub's loop prevention), same as PR creation. The `token` input should carry a PAT/App token
+  if you rely on post-merge workflows.
+
+Auto-merge is only enabled on the `created` operation — re-running against an existing open PR (`updated`) leaves its
+existing merge state untouched.
 
 ## How the changelog is built
 
@@ -94,7 +112,7 @@ The only non-failure "no-op" outcome is `current === latest`: the action logs "A
 
 ## Why a composite action
 
-The action is composite, not a single Node binary, so it can chain into `peter-evans/create-pull-request@v6` directly.
+The action is composite, not a single Node binary, so it can chain into `peter-evans/create-pull-request@v8` directly.
 Trade-off: the consumer's workflow becomes a single `uses:` step, but the peter-evans version is pinned by this action's
 tag rather than by the consumer. Bump this action's tag to pick up peter-evans updates.
 
@@ -103,7 +121,7 @@ directly. You'll need to run `actions/setup-node` yourself and provide the `INPU
 these for you):
 
 ```yaml
-- uses: actions/setup-node@v4
+- uses: actions/setup-node@v6
   with:
     node-version: 20
     registry-url: https://npm.pkg.github.com
