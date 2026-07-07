@@ -10,6 +10,8 @@ import {
   classifySemverChange,
   npmRegistryEnv,
   parseAutoMergeWhenSemver,
+  readBooleanInput,
+  readInput,
   registryAuthKey,
   run,
   shouldAutoMerge,
@@ -282,6 +284,69 @@ describe('slugForBranch', () => {
 
   it('replaces other branch-unsafe characters with hyphens', () => {
     expect(slugForBranch('@scope/foo bar~baz')).toBe('scope-foo-bar-baz')
+  })
+})
+
+describe('readInput / readBooleanInput', () => {
+  // These read process.env directly rather than via core.getInput, because
+  // core.getInput('foo-bar') maps to INPUT_FOO-BAR (hyphen preserved) while
+  // action.yml sets INPUT_FOO_BAR (hyphen -> underscore). This is a regression
+  // guard for that exact mismatch: a hyphenated input must resolve.
+  const saved: Record<string, string | undefined> = {}
+  const keys = ['INPUT_AUTO_MERGE', 'INPUT_AUTO_MERGE_WHEN_SEMVER', 'INPUT_NPM_SCOPE', 'INPUT_PACKAGE']
+  beforeEach(() => {
+    for (const k of keys) {
+      saved[k] = process.env[k]
+      delete process.env[k]
+    }
+  })
+  afterEach(() => {
+    for (const k of keys) {
+      if (saved[k] === undefined) delete process.env[k]
+      else process.env[k] = saved[k]
+    }
+  })
+
+  it('reads a hyphenated input from its underscore INPUT_ env var', () => {
+    process.env['INPUT_NPM_SCOPE'] = '@qsrsoft'
+    expect(readInput('npm-scope')).toBe('@qsrsoft')
+  })
+
+  it('reads a multi-hyphen input name', () => {
+    process.env['INPUT_AUTO_MERGE_WHEN_SEMVER'] = 'minor, patch'
+    expect(readInput('auto-merge-when-semver')).toBe('minor, patch')
+  })
+
+  it('trims whitespace and returns empty string for an unset input', () => {
+    process.env['INPUT_PACKAGE'] = '  @scope/pkg  '
+    expect(readInput('package')).toBe('@scope/pkg')
+    expect(readInput('npm-scope')).toBe('')
+  })
+
+  it('throws for a required input that is unset', () => {
+    expect(() => readInput('package', { required: true })).toThrow(/Input required and not supplied: package/)
+  })
+
+  it('defaults an unset boolean input to false instead of throwing', () => {
+    // This is the exact production failure: getBooleanInput threw the "Core
+    // Schema" error on the empty string it got from the name mismatch.
+    expect(readBooleanInput('auto-merge')).toBe(false)
+  })
+
+  it('parses the true/false vocabulary case-insensitively', () => {
+    for (const t of ['true', 'True', 'TRUE']) {
+      process.env['INPUT_AUTO_MERGE'] = t
+      expect(readBooleanInput('auto-merge')).toBe(true)
+    }
+    for (const f of ['false', 'False', 'FALSE']) {
+      process.env['INPUT_AUTO_MERGE'] = f
+      expect(readBooleanInput('auto-merge')).toBe(false)
+    }
+  })
+
+  it('throws on a non-boolean value', () => {
+    process.env['INPUT_AUTO_MERGE'] = 'yes'
+    expect(() => readBooleanInput('auto-merge')).toThrow(/does not meet the boolean specification/)
   })
 })
 
