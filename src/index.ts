@@ -258,15 +258,43 @@ function applyOutputs(outputs: Outputs): void {
   if (outputs.prBodyPath) core.setOutput('pr-body-path', outputs.prBodyPath)
 }
 
+// Read a composite input from its INPUT_* env var. We do NOT use
+// core.getInput() here: as of @actions/core v3 it maps only spaces to
+// underscores in the name (`INPUT_${name.replace(/ /g, '_')}`), so
+// getInput('auto-merge') reads INPUT_AUTO-MERGE — but action.yml sets
+// INPUT_AUTO_MERGE (hyphens to underscores, the documented convention). The
+// mismatch silently yields '' for every hyphenated input, and getBooleanInput
+// then throws on the empty string. Reading the env var by the same
+// hyphen-to-underscore rule action.yml uses keeps the two sides in agreement.
+export function readInput(name: string, opts: { required?: boolean } = {}): string {
+  const envName = `INPUT_${name.replace(/-/g, '_').toUpperCase()}`
+  const value = (process.env[envName] ?? '').trim()
+  if (opts.required && !value) {
+    throw new Error(`Input required and not supplied: ${name}`)
+  }
+  return value
+}
+
+// Parse a boolean input by the same true/false vocabulary as
+// core.getBooleanInput, but defaulting an empty/unset value to false rather
+// than throwing — an optional flag that isn't set should be off.
+export function readBooleanInput(name: string): boolean {
+  const value = readInput(name)
+  if (value === '') return false
+  if (/^(true|True|TRUE)$/.test(value)) return true
+  if (/^(false|False|FALSE)$/.test(value)) return false
+  throw new Error(`Input '${name}' does not meet the boolean specification (true|false), got '${value}'.`)
+}
+
 async function main(): Promise<void> {
   const inputs: Inputs = {
-    package: core.getInput('package', { required: true }),
-    tag: core.getInput('tag', { required: true }),
-    registry: core.getInput('npm-registry') || 'https://npm.pkg.github.com',
-    scope: core.getInput('npm-scope'),
-    token: core.getInput('token', { required: true }),
-    autoMerge: core.getBooleanInput('auto-merge'),
-    autoMergeWhenSemver: parseAutoMergeWhenSemver(core.getInput('auto-merge-when-semver'))
+    package: readInput('package', { required: true }),
+    tag: readInput('tag', { required: true }),
+    registry: readInput('npm-registry') || 'https://npm.pkg.github.com',
+    scope: readInput('npm-scope'),
+    token: readInput('token', { required: true }),
+    autoMerge: readBooleanInput('auto-merge'),
+    autoMergeWhenSemver: parseAutoMergeWhenSemver(readInput('auto-merge-when-semver'))
   }
   const result = await run(inputs, realDeps())
   applyOutputs(result.outputs)

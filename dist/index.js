@@ -19659,6 +19659,8 @@ __export(index_exports, {
   classifySemverChange: () => classifySemverChange,
   npmRegistryEnv: () => npmRegistryEnv,
   parseAutoMergeWhenSemver: () => parseAutoMergeWhenSemver,
+  readBooleanInput: () => readBooleanInput,
+  readInput: () => readInput,
   registryAuthKey: () => registryAuthKey,
   run: () => run,
   shouldAutoMerge: () => shouldAutoMerge,
@@ -20872,27 +20874,6 @@ var ExitCode;
   ExitCode2[ExitCode2["Success"] = 0] = "Success";
   ExitCode2[ExitCode2["Failure"] = 1] = "Failure";
 })(ExitCode || (ExitCode = {}));
-function getInput(name, options) {
-  const val = process.env[`INPUT_${name.replace(/ /g, "_").toUpperCase()}`] || "";
-  if (options && options.required && !val) {
-    throw new Error(`Input required and not supplied: ${name}`);
-  }
-  if (options && options.trimWhitespace === false) {
-    return val;
-  }
-  return val.trim();
-}
-function getBooleanInput(name, options) {
-  const trueValue = ["true", "True", "TRUE"];
-  const falseValue = ["false", "False", "FALSE"];
-  const val = getInput(name, options);
-  if (trueValue.includes(val))
-    return true;
-  if (falseValue.includes(val))
-    return false;
-  throw new TypeError(`Input does not meet YAML 1.2 "Core Schema" specification: ${name}
-Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
-}
 function setOutput(name, value) {
   const filePath = process.env["GITHUB_OUTPUT"] || "";
   if (filePath) {
@@ -25039,15 +25020,30 @@ function applyOutputs(outputs) {
   if (outputs.prCommitMessage) setOutput("pr-commit-message", outputs.prCommitMessage);
   if (outputs.prBodyPath) setOutput("pr-body-path", outputs.prBodyPath);
 }
+function readInput(name, opts = {}) {
+  const envName = `INPUT_${name.replace(/-/g, "_").toUpperCase()}`;
+  const value = (process.env[envName] ?? "").trim();
+  if (opts.required && !value) {
+    throw new Error(`Input required and not supplied: ${name}`);
+  }
+  return value;
+}
+function readBooleanInput(name) {
+  const value = readInput(name);
+  if (value === "") return false;
+  if (/^(true|True|TRUE)$/.test(value)) return true;
+  if (/^(false|False|FALSE)$/.test(value)) return false;
+  throw new Error(`Input '${name}' does not meet the boolean specification (true|false), got '${value}'.`);
+}
 async function main() {
   const inputs = {
-    package: getInput("package", { required: true }),
-    tag: getInput("tag", { required: true }),
-    registry: getInput("npm-registry") || "https://npm.pkg.github.com",
-    scope: getInput("npm-scope"),
-    token: getInput("token", { required: true }),
-    autoMerge: getBooleanInput("auto-merge"),
-    autoMergeWhenSemver: parseAutoMergeWhenSemver(getInput("auto-merge-when-semver"))
+    package: readInput("package", { required: true }),
+    tag: readInput("tag", { required: true }),
+    registry: readInput("npm-registry") || "https://npm.pkg.github.com",
+    scope: readInput("npm-scope"),
+    token: readInput("token", { required: true }),
+    autoMerge: readBooleanInput("auto-merge"),
+    autoMergeWhenSemver: parseAutoMergeWhenSemver(readInput("auto-merge-when-semver"))
   };
   const result = await run(inputs, realDeps());
   applyOutputs(result.outputs);
@@ -25065,6 +25061,8 @@ if (process.env.VITEST !== "true") {
   classifySemverChange,
   npmRegistryEnv,
   parseAutoMergeWhenSemver,
+  readBooleanInput,
+  readInput,
   registryAuthKey,
   run,
   shouldAutoMerge,
