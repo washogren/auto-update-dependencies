@@ -83,7 +83,7 @@ once all required status checks pass. Prerequisites:
 Auto-merge is only enabled on the `created` operation — re-running against an existing open PR (`updated`) leaves its
 existing merge state untouched.
 
-### Restricting auto-merge by semver
+### Restricting auto-merge by SemVer
 
 By default, `auto-merge: true` merges every bump. Set `auto-merge-when-semver` to a comma-separated list of `major`,
 `minor`, and/or `patch` to auto-merge only the change types you trust to land unattended — for example, let patches and
@@ -95,9 +95,9 @@ with:
   auto-merge-when-semver: minor, patch
 ```
 
-- When `auto-merge-when-semver` is **empty** (the default), no semver formatting is enforced — every bump auto-merges,
-  including versions that aren't valid semver.
-- When it is **set**, both the pinned and resolved versions must be valid semver. If either isn't, the action fails
+- When `auto-merge-when-semver` is **empty** (the default), no SemVer formatting is enforced — every bump auto-merges,
+  including versions that aren't valid SemVer.
+- When it is **set**, both the pinned and resolved versions must be valid SemVer. If either isn't, the action fails
   loudly rather than guessing
 - A **prerelease-only** bump (same `major.minor.patch`, e.g. `1.0.2-dev.11` → `1.0.2-dev.12`) counts as `patch`. The
   watched dist-tag is what pins dev/staging/prod, so the prerelease segment is noise below the patch level.
