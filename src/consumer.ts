@@ -17,8 +17,19 @@ export async function readPinnedVersion(cwd: string, packageName: string): Promi
 }
 
 export async function installExact(pkg: string, version: string, ctx: NpmContext): Promise<void> {
-  await exec('npm', ['install', '--save-exact', `${pkg}@${version}`], {
-    cwd: ctx.cwd,
-    env: ctx.env
-  })
+  // Bumping a single pin only needs package.json rewritten and the lockfile
+  // resolved — not the whole dependency tree downloaded and built. --save-exact
+  // pins without a caret; --package-lock-only refreshes package.json + the
+  // lockfile without populating node_modules; --ignore-scripts and --no-audit
+  // avoid running arbitrary install scripts and the audit round-trip. This also
+  // shrinks the blast radius: we no longer resolve every transitive public dep,
+  // so an unrelated registry hiccup can't fail the bump.
+  await exec(
+    'npm',
+    ['install', '--save-exact', '--package-lock-only', '--ignore-scripts', '--no-audit', `${pkg}@${version}`],
+    {
+      cwd: ctx.cwd,
+      env: ctx.env
+    }
+  )
 }

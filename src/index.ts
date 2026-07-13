@@ -21,12 +21,15 @@ export interface Inputs {
   registry: string
   scope: string
   token: string
+  autoMerge: boolean
+  autoMergeWhenSemver: SemverChange[]
 }
 
 export interface Outputs {
   changed: boolean
   current?: string
   latest?: string
+  shouldAutoMerge?: boolean
   prTitle?: string
   prBranch?: string
   prCommitMessage?: string
@@ -51,14 +54,7 @@ export interface RunResult {
 }
 
 export async function run(inputs: Inputs, deps: Deps): Promise<RunResult> {
-  const extra: Record<string, string> = {
-    NODE_AUTH_TOKEN: inputs.token,
-    npm_config_registry: inputs.registry
-  }
-  if (inputs.scope) {
-    extra[`npm_config_${inputs.scope.replace(/^@/, '').replace(/-/g, '_')}_registry`] = inputs.registry
-  }
-  const npmCtx: NpmContext = { cwd: deps.cwd, env: envFromProcess(extra) }
+  const npmCtx: NpmContext = { cwd: deps.cwd, env: envFromProcess(npmRegistryEnv(inputs)) }
 
   const current = await deps.readPinnedVersion(deps.cwd, inputs.package)
   if (!current) {
@@ -130,6 +126,7 @@ export async function run(inputs: Inputs, deps: Deps): Promise<RunResult> {
       changed: true,
       current,
       latest,
+      shouldAutoMerge: shouldAutoMerge(current, latest, inputs),
       prTitle: `Bump ${inputs.package} to ${latest} (${inputs.tag})`,
       prBranch: `auto-update/${slugForBranch(inputs.package)}-${inputs.tag}`,
       prCommitMessage: `Track ${inputs.package} ${inputs.tag} -> ${latest}`,
@@ -140,6 +137,98 @@ export async function run(inputs: Inputs, deps: Deps): Promise<RunResult> {
 
 export function slugForBranch(pkg: string): string {
   return pkg.replace(/^@/, '').replace(/[^A-Za-z0-9._-]/g, '-')
+}
+
+// Build the npm config env vars for every npm invocation. The action only ever
+// needs a SCOPED association to the (possibly private) registry, never a global
+// default: setting `npm_config_registry` makes that registry the default for
+// EVERY package, so public deps like `aws-cdk-lib` get resolved against it and
+// 404. Instead we bind only `@scope:registry` and the host auth token, leaving
+// the default registry (registry.npmjs.org) untouched.
+//
+// npm reads config from env vars named `npm_config_<key>`, where <key> is the
+// literal .npmrc key — including `@scope:registry` and `//host/:_authToken`.
+// (The earlier `npm_config_<scope>_registry` form was silently ignored by npm.)
+export function npmRegistryEnv(inputs: Inputs): Record<string, string> {
+  const env: Record<string, string> = { NODE_AUTH_TOKEN: inputs.token }
+  if (inputs.scope) {
+    const scope = inputs.scope.startsWith('@') ? inputs.scope : `@${inputs.scope}`
+    env[`npm_config_${scope}:registry`] = inputs.registry
+    env[`npm_config_${registryAuthKey(inputs.registry)}`] = inputs.token
+  }
+  return env
+}
+
+// Derive the .npmrc auth key for a registry URL: the host + path with the
+// protocol stripped and a trailing slash, e.g.
+// https://npm.pkg.github.com -> //npm.pkg.github.com/:_authToken
+export function registryAuthKey(registry: string): string {
+  const withoutProtocol = registry.replace(/^https?:/, '').replace(/\/+$/, '')
+  return `${withoutProtocol}/:_authToken`
+}
+
+export type SemverChange = 'major' | 'minor' | 'patch'
+
+const SEMVER_CHANGES: readonly SemverChange[] = ['major', 'minor', 'patch']
+
+// Match major.minor.patch with an optional prerelease and/or build segment.
+// Only the core X.Y.Z is captured; the prerelease/build tail is intentionally
+// ignored (see classifySemverChange).
+const SEMVER_CORE = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/
+
+// Parse the auto-merge-when-semver input: a comma/whitespace-separated list of
+// major/minor/patch. Throws on any unrecognized token so a typo fails loudly
+// rather than silently narrowing what auto-merges.
+export function parseAutoMergeWhenSemver(raw: string): SemverChange[] {
+  const tokens = raw
+    .split(/[\s,]+/)
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length > 0)
+  const seen = new Set<SemverChange>()
+  for (const token of tokens) {
+    if (!SEMVER_CHANGES.includes(token as SemverChange)) {
+      throw new Error(
+        `Invalid 'auto-merge-when-semver' value '${token}'. ` +
+          `Expected a comma-separated list of: ${SEMVER_CHANGES.join(', ')}.`
+      )
+    }
+    seen.add(token as SemverChange)
+  }
+  return SEMVER_CHANGES.filter((c) => seen.has(c))
+}
+
+// Classify a version bump as major/minor/patch by comparing the core X.Y.Z.
+// A prerelease-only change (same core, e.g. 1.0.2-dev.11 -> 1.0.2-dev.12) is a
+// patch: the dist-tag is what pins dev/staging/prod, so the prerelease segment
+// is noise below the patch level. Throws if either version is not semver, since
+// classification is impossible without it.
+export function classifySemverChange(prev: string, next: string): SemverChange {
+  const prevMatch = SEMVER_CORE.exec(prev)
+  const nextMatch = SEMVER_CORE.exec(next)
+  if (!prevMatch || !nextMatch) {
+    const offender = !prevMatch ? prev : next
+    throw new Error(
+      `Cannot classify the semver change: version '${offender}' is not in major.minor.patch form. ` +
+        `'auto-merge-when-semver' requires both the pinned and resolved versions to be valid semver.`
+    )
+  }
+  const [, prevMajor, prevMinor] = prevMatch
+  const [, nextMajor, nextMinor] = nextMatch
+  if (prevMajor !== nextMajor) return 'major'
+  if (prevMinor !== nextMinor) return 'minor'
+  return 'patch'
+}
+
+// Decide whether the bump from prev -> next should auto-merge, given the inputs.
+// - auto-merge off        -> never
+// - no semver filter set  -> always (no semver enforcement)
+// - semver filter set     -> only when the classified change is in the filter
+//                            (throws via classifySemverChange if not semver)
+export function shouldAutoMerge(prev: string, next: string, inputs: Inputs): boolean {
+  if (!inputs.autoMerge) return false
+  if (inputs.autoMergeWhenSemver.length === 0) return true
+  const change = classifySemverChange(prev, next)
+  return inputs.autoMergeWhenSemver.includes(change)
 }
 
 function realDeps(): Deps {
@@ -162,19 +251,50 @@ function applyOutputs(outputs: Outputs): void {
   core.setOutput('changed', String(outputs.changed))
   if (outputs.current) core.setOutput('current', outputs.current)
   if (outputs.latest) core.setOutput('latest', outputs.latest)
+  if (outputs.shouldAutoMerge !== undefined) core.setOutput('should-auto-merge', String(outputs.shouldAutoMerge))
   if (outputs.prTitle) core.setOutput('pr-title', outputs.prTitle)
   if (outputs.prBranch) core.setOutput('pr-branch', outputs.prBranch)
   if (outputs.prCommitMessage) core.setOutput('pr-commit-message', outputs.prCommitMessage)
   if (outputs.prBodyPath) core.setOutput('pr-body-path', outputs.prBodyPath)
 }
 
+// Read a composite input from its INPUT_* env var. We do NOT use
+// core.getInput() here: as of @actions/core v3 it maps only spaces to
+// underscores in the name (`INPUT_${name.replace(/ /g, '_')}`), so
+// getInput('auto-merge') reads INPUT_AUTO-MERGE — but action.yml sets
+// INPUT_AUTO_MERGE (hyphens to underscores, the documented convention). The
+// mismatch silently yields '' for every hyphenated input, and getBooleanInput
+// then throws on the empty string. Reading the env var by the same
+// hyphen-to-underscore rule action.yml uses keeps the two sides in agreement.
+export function readInput(name: string, opts: { required?: boolean } = {}): string {
+  const envName = `INPUT_${name.replace(/-/g, '_').toUpperCase()}`
+  const value = (process.env[envName] ?? '').trim()
+  if (opts.required && !value) {
+    throw new Error(`Input required and not supplied: ${name}`)
+  }
+  return value
+}
+
+// Parse a boolean input by the same true/false vocabulary as
+// core.getBooleanInput, but defaulting an empty/unset value to false rather
+// than throwing — an optional flag that isn't set should be off.
+export function readBooleanInput(name: string): boolean {
+  const value = readInput(name)
+  if (value === '') return false
+  if (/^(true|True|TRUE)$/.test(value)) return true
+  if (/^(false|False|FALSE)$/.test(value)) return false
+  throw new Error(`Input '${name}' does not meet the boolean specification (true|false), got '${value}'.`)
+}
+
 async function main(): Promise<void> {
   const inputs: Inputs = {
-    package: core.getInput('package', { required: true }),
-    tag: core.getInput('tag', { required: true }),
-    registry: core.getInput('npm-registry') || 'https://npm.pkg.github.com',
-    scope: core.getInput('npm-scope'),
-    token: core.getInput('token', { required: true })
+    package: readInput('package', { required: true }),
+    tag: readInput('tag', { required: true }),
+    registry: readInput('npm-registry') || 'https://npm.pkg.github.com',
+    scope: readInput('npm-scope'),
+    token: readInput('token', { required: true }),
+    autoMerge: readBooleanInput('auto-merge'),
+    autoMergeWhenSemver: parseAutoMergeWhenSemver(readInput('auto-merge-when-semver'))
   }
   const result = await run(inputs, realDeps())
   applyOutputs(result.outputs)
