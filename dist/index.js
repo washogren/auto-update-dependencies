@@ -19656,7 +19656,14 @@ var require_dist = __commonJS({
 // src/index.ts
 var index_exports = {};
 __export(index_exports, {
+  classifySemverChange: () => classifySemverChange,
+  npmRegistryEnv: () => npmRegistryEnv,
+  parseAutoMergeWhenSemver: () => parseAutoMergeWhenSemver,
+  readBooleanInput: () => readBooleanInput,
+  readInput: () => readInput,
+  registryAuthKey: () => registryAuthKey,
   run: () => run,
+  shouldAutoMerge: () => shouldAutoMerge,
   slugForBranch: () => slugForBranch
 });
 module.exports = __toCommonJS(index_exports);
@@ -20867,16 +20874,6 @@ var ExitCode;
   ExitCode2[ExitCode2["Success"] = 0] = "Success";
   ExitCode2[ExitCode2["Failure"] = 1] = "Failure";
 })(ExitCode || (ExitCode = {}));
-function getInput(name, options) {
-  const val = process.env[`INPUT_${name.replace(/ /g, "_").toUpperCase()}`] || "";
-  if (options && options.required && !val) {
-    throw new Error(`Input required and not supplied: ${name}`);
-  }
-  if (options && options.trimWhitespace === false) {
-    return val;
-  }
-  return val.trim();
-}
 function setOutput(name, value) {
   const filePath = process.env["GITHUB_OUTPUT"] || "";
   if (filePath) {
@@ -21047,10 +21044,14 @@ async function readPinnedVersion(cwd, packageName) {
   return json.dependencies?.[packageName] ?? json.devDependencies?.[packageName] ?? null;
 }
 async function installExact(pkg, version, ctx) {
-  await exec("npm", ["install", "--save-exact", `${pkg}@${version}`], {
-    cwd: ctx.cwd,
-    env: ctx.env
-  });
+  await exec(
+    "npm",
+    ["install", "--save-exact", "--package-lock-only", "--ignore-scripts", "--no-audit", `${pkg}@${version}`],
+    {
+      cwd: ctx.cwd,
+      env: ctx.env
+    }
+  );
 }
 
 // node_modules/@actions/github/lib/context.js
@@ -24877,14 +24878,7 @@ async function fetchCommitsWithPrs(token, slug, prevSha, nextSha) {
 
 // src/index.ts
 async function run(inputs, deps) {
-  const extra = {
-    NODE_AUTH_TOKEN: inputs.token,
-    npm_config_registry: inputs.registry
-  };
-  if (inputs.scope) {
-    extra[`npm_config_${inputs.scope.replace(/^@/, "").replace(/-/g, "_")}_registry`] = inputs.registry;
-  }
-  const npmCtx = { cwd: deps.cwd, env: envFromProcess(extra) };
+  const npmCtx = { cwd: deps.cwd, env: envFromProcess(npmRegistryEnv(inputs)) };
   const current = await deps.readPinnedVersion(deps.cwd, inputs.package);
   if (!current) {
     throw new Error(`Could not find ${inputs.package} in package.json dependencies or devDependencies at ${deps.cwd}.`);
@@ -24941,6 +24935,7 @@ async function run(inputs, deps) {
       changed: true,
       current,
       latest,
+      shouldAutoMerge: shouldAutoMerge(current, latest, inputs),
       prTitle: `Bump ${inputs.package} to ${latest} (${inputs.tag})`,
       prBranch: `auto-update/${slugForBranch(inputs.package)}-${inputs.tag}`,
       prCommitMessage: `Track ${inputs.package} ${inputs.tag} -> ${latest}`,
@@ -24950,6 +24945,55 @@ async function run(inputs, deps) {
 }
 function slugForBranch(pkg) {
   return pkg.replace(/^@/, "").replace(/[^A-Za-z0-9._-]/g, "-");
+}
+function npmRegistryEnv(inputs) {
+  const env = { NODE_AUTH_TOKEN: inputs.token };
+  if (inputs.scope) {
+    const scope = inputs.scope.startsWith("@") ? inputs.scope : `@${inputs.scope}`;
+    env[`npm_config_${scope}:registry`] = inputs.registry;
+    env[`npm_config_${registryAuthKey(inputs.registry)}`] = inputs.token;
+  }
+  return env;
+}
+function registryAuthKey(registry) {
+  const withoutProtocol = registry.replace(/^https?:/, "").replace(/\/+$/, "");
+  return `${withoutProtocol}/:_authToken`;
+}
+var SEMVER_CHANGES = ["major", "minor", "patch"];
+var SEMVER_CORE = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/;
+function parseAutoMergeWhenSemver(raw) {
+  const tokens = raw.split(/[\s,]+/).map((t) => t.trim().toLowerCase()).filter((t) => t.length > 0);
+  const seen = /* @__PURE__ */ new Set();
+  for (const token of tokens) {
+    if (!SEMVER_CHANGES.includes(token)) {
+      throw new Error(
+        `Invalid 'auto-merge-when-semver' value '${token}'. Expected a comma-separated list of: ${SEMVER_CHANGES.join(", ")}.`
+      );
+    }
+    seen.add(token);
+  }
+  return SEMVER_CHANGES.filter((c) => seen.has(c));
+}
+function classifySemverChange(prev, next) {
+  const prevMatch = SEMVER_CORE.exec(prev);
+  const nextMatch = SEMVER_CORE.exec(next);
+  if (!prevMatch || !nextMatch) {
+    const offender = !prevMatch ? prev : next;
+    throw new Error(
+      `Cannot classify the semver change: version '${offender}' is not in major.minor.patch form. 'auto-merge-when-semver' requires both the pinned and resolved versions to be valid semver.`
+    );
+  }
+  const [, prevMajor, prevMinor] = prevMatch;
+  const [, nextMajor, nextMinor] = nextMatch;
+  if (prevMajor !== nextMajor) return "major";
+  if (prevMinor !== nextMinor) return "minor";
+  return "patch";
+}
+function shouldAutoMerge(prev, next, inputs) {
+  if (!inputs.autoMerge) return false;
+  if (inputs.autoMergeWhenSemver.length === 0) return true;
+  const change = classifySemverChange(prev, next);
+  return inputs.autoMergeWhenSemver.includes(change);
 }
 function realDeps() {
   const cwd = process.env.GITHUB_WORKSPACE ?? process.cwd();
@@ -24970,18 +25014,36 @@ function applyOutputs(outputs) {
   setOutput("changed", String(outputs.changed));
   if (outputs.current) setOutput("current", outputs.current);
   if (outputs.latest) setOutput("latest", outputs.latest);
+  if (outputs.shouldAutoMerge !== void 0) setOutput("should-auto-merge", String(outputs.shouldAutoMerge));
   if (outputs.prTitle) setOutput("pr-title", outputs.prTitle);
   if (outputs.prBranch) setOutput("pr-branch", outputs.prBranch);
   if (outputs.prCommitMessage) setOutput("pr-commit-message", outputs.prCommitMessage);
   if (outputs.prBodyPath) setOutput("pr-body-path", outputs.prBodyPath);
 }
+function readInput(name, opts = {}) {
+  const envName = `INPUT_${name.replace(/-/g, "_").toUpperCase()}`;
+  const value = (process.env[envName] ?? "").trim();
+  if (opts.required && !value) {
+    throw new Error(`Input required and not supplied: ${name}`);
+  }
+  return value;
+}
+function readBooleanInput(name) {
+  const value = readInput(name);
+  if (value === "") return false;
+  if (/^(true|True|TRUE)$/.test(value)) return true;
+  if (/^(false|False|FALSE)$/.test(value)) return false;
+  throw new Error(`Input '${name}' does not meet the boolean specification (true|false), got '${value}'.`);
+}
 async function main() {
   const inputs = {
-    package: getInput("package", { required: true }),
-    tag: getInput("tag", { required: true }),
-    registry: getInput("npm-registry") || "https://npm.pkg.github.com",
-    scope: getInput("npm-scope"),
-    token: getInput("token", { required: true })
+    package: readInput("package", { required: true }),
+    tag: readInput("tag", { required: true }),
+    registry: readInput("npm-registry") || "https://npm.pkg.github.com",
+    scope: readInput("npm-scope"),
+    token: readInput("token", { required: true }),
+    autoMerge: readBooleanInput("auto-merge"),
+    autoMergeWhenSemver: parseAutoMergeWhenSemver(readInput("auto-merge-when-semver"))
   };
   const result = await run(inputs, realDeps());
   applyOutputs(result.outputs);
@@ -24996,7 +25058,14 @@ if (process.env.VITEST !== "true") {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  classifySemverChange,
+  npmRegistryEnv,
+  parseAutoMergeWhenSemver,
+  readBooleanInput,
+  readInput,
+  registryAuthKey,
   run,
+  shouldAutoMerge,
   slugForBranch
 });
 /*! Bundled license information:

@@ -139,17 +139,48 @@ jobs:
         # closed-PR pile-up that accrued when each e2e run abandoned its PR.
         # --delete-branch cleans up the auto-update branch; peter-evans
         # recreates it on the next run.
+        #
+        # Gate the merge on the PR's own checks (am-consumer's test-pr.yml).
+        # am-consumer is a private repo on a free plan, so branch protection
+        # can't enforce required checks — this step enforces it instead. Opening
+        # the PR triggers test-pr.yml asynchronously, so we `--watch` the PR's
+        # checks to completion first; `--fail-fast` makes gh exit non-zero the
+        # moment a check fails. A failing test skips the merge and fails this
+        # step rather than merging a broken bump.
         env:
           PR_JSON: ${{ steps.consumer_pr.outputs.pr_json }}
           ACTION_PR_NUMBER: ${{ env.ACTION_PR_NUMBER }}
           ACTION_PR_SHA: ${{ env.ACTION_PR_SHA }}
         run: |
-          echo "$PR_JSON" | jq -r '.[].number' | while read -r N; do
+          failed=0
+          # Read into an array so the loop body runs in this shell (not a pipe
+          # subshell), letting a failure set `failed` and fail the step.
+          mapfile -t PR_NUMBERS < <(echo "$PR_JSON" | jq -r '.[].number')
+          for N in "${PR_NUMBERS[@]}"; do
             [ -z "$N" ] && continue
+            # test-pr.yml registers its check asynchronously after the PR opens.
+            # `gh pr checks --watch` errors instead of waiting when zero checks
+            # exist yet, so poll until at least one shows up before watching.
+            echo "Waiting for a check to register on am-consumer PR #$N..."
+            for _ in $(seq 1 30); do
+              if gh pr checks "$N" -R washogren/am-consumer >/dev/null 2>&1; then
+                break
+              fi
+              sleep 4
+            done
+            echo "Watching checks on am-consumer PR #$N..."
+            if ! gh pr checks "$N" -R washogren/am-consumer --watch --fail-fast; then
+              echo "::error::am-consumer PR #$N has failing checks; refusing to merge it."
+              gh pr comment "$N" -R washogren/am-consumer \
+                --body "Not merged by auto-update-dependencies#${ACTION_PR_NUMBER} (action ref \`${ACTION_PR_SHA}\`): the PR's checks failed. Merge is gated on a green test run."
+              failed=1
+              continue
+            fi
             gh pr comment "$N" -R washogren/am-consumer \
               --body "Merged by auto-update-dependencies#${ACTION_PR_NUMBER} (action ref \`${ACTION_PR_SHA}\`) as the historical e2e artifact. Merging advances \`dev\` like the real flow and keeps this PR's rendered body frozen."
             gh pr merge "$N" -R washogren/am-consumer --merge --delete-branch
           done
+          exit "$failed"
 
       - name: Comment on the action PR
         env:
