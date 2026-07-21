@@ -54,6 +54,15 @@ inputs:
       (prerelease-only bumps count as patch).'
     required: false
     default: ''
+  create-pr-when-semver:
+    description:
+      'Restrict PR creation to specific semver change types. A comma-separated list of major, minor, patch. When empty
+      (the default), a PR is opened for every bump. When set, both the pinned and resolved versions must be valid
+      semver, and a PR is only opened if the change matches one of the listed types (prerelease-only bumps count as
+      patch). A bump whose type is excluded is reported via the changed/semver-change outputs but left for manual
+      handling — e.g. keep majors out of the automated flow with create-pr-when-semver: patch, minor.'
+    required: false
+    default: ''
 outputs:
   changed:
     description: 'true if the dist-tag points to a newer version than what is pinned in package.json; false otherwise.'
@@ -64,6 +73,16 @@ outputs:
   latest:
     description: 'The version the dist-tag now points to.'
     value: ${{ steps.bump.outputs.latest }}
+  semver-change:
+    description:
+      'The classified bump type: major, minor, or patch. Empty when no semver filter (auto-merge-when-semver /
+      create-pr-when-semver) is set or when there was no change.'
+    value: ${{ steps.bump.outputs.semver-change }}
+  should-create-pr:
+    description:
+      'true if a PR should be opened for this bump per create-pr-when-semver; false when the bump type is excluded.
+      Empty when there was no change.'
+    value: ${{ steps.bump.outputs.should-create-pr }}
   pr-number:
     description: 'The number of the PR that was created or updated. Empty when no PR was opened.'
     value: ${{ steps.cpr.outputs.pull-request-number }}
@@ -98,11 +117,14 @@ runs:
         INPUT_TOKEN: ${{ inputs.token }}
         INPUT_AUTO_MERGE: ${{ inputs.auto-merge }}
         INPUT_AUTO_MERGE_WHEN_SEMVER: ${{ inputs.auto-merge-when-semver }}
+        INPUT_CREATE_PR_WHEN_SEMVER: ${{ inputs.create-pr-when-semver }}
         NODE_AUTH_TOKEN: ${{ inputs.token }}
       run: node "${{ github.action_path }}/dist/index.js"
 
     - name: Open or update PR
-      if: steps.bump.outputs.changed == 'true'
+      # should-create-pr is only 'true' on the changed path where the bump type
+      # passes create-pr-when-semver, so it fully subsumes the changed check.
+      if: steps.bump.outputs.should-create-pr == 'true'
       id: cpr
       uses: peter-evans/create-pull-request@v8
       with:

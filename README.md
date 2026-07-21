@@ -42,30 +42,33 @@ is still responsible for the surrounding workflow concerns: triggers, `permissio
 
 ## Inputs
 
-| Name                     | Required | Default                      | Description                                                                                                                    |
-| ------------------------ | -------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `package`                | yes      |                              | The npm package name (e.g. `@your-org/your-dependency`).                                                                       |
-| `tag`                    | yes      |                              | The dist-tag to track.                                                                                                         |
-| `token`                  | yes      |                              | Token with package:read on the registry, repo:read on the dependency, and repo:write on the consumer.                          |
-| `base-branch`            | no       | `github.ref_name`            | The branch the PR targets.                                                                                                     |
-| `npm-registry`           | no       | `https://npm.pkg.github.com` | Registry the package is hosted on.                                                                                             |
-| `npm-scope`              | no       |                              | Scope to bind to the registry (e.g. `@your-org`).                                                                              |
-| `node-version`           | no       | `20`                         | Node.js version used by the internal `actions/setup-node` step.                                                                |
-| `delete-branch`          | no       | `true`                       | Forwarded to `peter-evans/create-pull-request` — delete the auto-update branch when the PR closes.                             |
-| `auto-merge`             | no       | `false`                      | Enable GitHub auto-merge on a newly-created PR so it merges once required checks pass.                                         |
-| `auto-merge-method`      | no       | `squash`                     | Merge method when `auto-merge` is on: `merge`, `squash`, or `rebase`.                                                          |
-| `auto-merge-when-semver` | no       |                              | Restrict auto-merge to specific bump types: a comma-separated list of `major`, `minor`, `patch`. Empty means merge every bump. |
+| Name                     | Required | Default                      | Description                                                                                                                             |
+| ------------------------ | -------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `package`                | yes      |                              | The npm package name (e.g. `@your-org/your-dependency`).                                                                                |
+| `tag`                    | yes      |                              | The dist-tag to track.                                                                                                                  |
+| `token`                  | yes      |                              | Token with package:read on the registry, repo:read on the dependency, and repo:write on the consumer.                                   |
+| `base-branch`            | no       | `github.ref_name`            | The branch the PR targets.                                                                                                              |
+| `npm-registry`           | no       | `https://npm.pkg.github.com` | Registry the package is hosted on.                                                                                                      |
+| `npm-scope`              | no       |                              | Scope to bind to the registry (e.g. `@your-org`).                                                                                       |
+| `node-version`           | no       | `20`                         | Node.js version used by the internal `actions/setup-node` step.                                                                         |
+| `delete-branch`          | no       | `true`                       | Forwarded to `peter-evans/create-pull-request` — delete the auto-update branch when the PR closes.                                      |
+| `auto-merge`             | no       | `false`                      | Enable GitHub auto-merge on a newly-created PR so it merges once required checks pass.                                                  |
+| `auto-merge-method`      | no       | `squash`                     | Merge method when `auto-merge` is on: `merge`, `squash`, or `rebase`.                                                                   |
+| `auto-merge-when-semver` | no       |                              | Restrict auto-merge to specific bump types: a comma-separated list of `major`, `minor`, `patch`. Empty means merge every bump.          |
+| `create-pr-when-semver`  | no       |                              | Restrict PR creation to specific bump types: a comma-separated list of `major`, `minor`, `patch`. Empty means open a PR for every bump. |
 
 ## Outputs
 
-| Name           | Description                                                       |
-| -------------- | ----------------------------------------------------------------- |
-| `changed`      | `true` if a bump was needed; `false` otherwise.                   |
-| `current`      | The previously-pinned version.                                    |
-| `latest`       | The version the dist-tag now points to.                           |
-| `pr-number`    | The created/updated PR number (empty if no PR was opened).        |
-| `pr-url`       | The created/updated PR URL (empty if no PR was opened).           |
-| `pr-operation` | `created`, `updated`, `closed`, or `none` — what peter-evans did. |
+| Name               | Description                                                                                  |
+| ------------------ | -------------------------------------------------------------------------------------------- |
+| `changed`          | `true` if a bump was needed; `false` otherwise.                                              |
+| `current`          | The previously-pinned version.                                                               |
+| `latest`           | The version the dist-tag now points to.                                                      |
+| `semver-change`    | The classified bump type (`major`/`minor`/`patch`), when a SemVer filter is set; else empty. |
+| `should-create-pr` | `true`/`false` per `create-pr-when-semver`; empty when nothing changed.                      |
+| `pr-number`        | The created/updated PR number (empty if no PR was opened).                                   |
+| `pr-url`           | The created/updated PR URL (empty if no PR was opened).                                      |
+| `pr-operation`     | `created`, `updated`, `closed`, or `none` — what peter-evans did.                            |
 
 ## Auto-merge
 
@@ -101,6 +104,28 @@ with:
   loudly rather than guessing
 - A **prerelease-only** bump (same `major.minor.patch`, e.g. `1.0.2-dev.11` → `1.0.2-dev.12`) counts as `patch`. The
   watched dist-tag is what pins dev/staging/prod, so the prerelease segment is noise below the patch level.
+
+### Restricting PR creation by SemVer
+
+`create-pr-when-semver` gates PR creation the same way `auto-merge-when-semver` gates merging. By default a PR is opened
+for every bump; set it to a comma-separated list of `major`/`minor`/`patch` to open PRs only for those change types. A
+bump whose type is excluded is skipped entirely — no `npm install`, no changelog, no PR — but still reported via the
+`changed` and `semver-change` outputs so you can act on it elsewhere.
+
+Combine the two filters to build a tiered policy. For example, auto-merge patches, open (but don't auto-merge) minors,
+and leave majors for a human to handle manually:
+
+```yaml
+with:
+  auto-merge: true
+  auto-merge-when-semver: patch # patch → PR + auto-merge
+  create-pr-when-semver: patch, minor # minor → PR only; major → no PR
+```
+
+- When `create-pr-when-semver` is **empty** (the default), a PR is opened for every bump.
+- When it is **set**, both versions must be valid SemVer (same throw-don't-degrade rule as `auto-merge-when-semver`).
+- A major excluded here never opens a PR; the run reports `changed: true`, `semver-change: major`,
+  `should-create-pr: false` so a downstream step can flag it.
 
 ## How the changelog is built
 

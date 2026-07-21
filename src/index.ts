@@ -23,12 +23,15 @@ export interface Inputs {
   token: string
   autoMerge: boolean
   autoMergeWhenSemver: SemverChange[]
+  createPrWhenSemver: SemverChange[]
 }
 
 export interface Outputs {
   changed: boolean
   current?: string
   latest?: string
+  semverChange?: SemverChange
+  shouldCreatePr?: boolean
   shouldAutoMerge?: boolean
   prTitle?: string
   prBranch?: string
@@ -72,6 +75,28 @@ export async function run(inputs: Inputs, deps: Deps): Promise<RunResult> {
   if (current === latest) {
     deps.log(`Already at ${latest}. Nothing to do.`)
     return { outputs: { changed: false, current, latest } }
+  }
+
+  // Classify the bump once if either semver filter is in play; both the
+  // create-PR and auto-merge decisions key off it. Left undefined when no
+  // filter is set (so non-semver versions still flow through unclassified).
+  const semverChange =
+    inputs.createPrWhenSemver.length > 0 || inputs.autoMergeWhenSemver.length > 0
+      ? classifySemverChange(current, latest)
+      : undefined
+
+  // If a create-PR filter is set and this bump's type isn't in it, stop before
+  // any mutation: don't install, don't render a changelog, don't open a PR.
+  // The bump still counts as "changed" (a newer version exists) so callers can
+  // observe it — e.g. a major that's intentionally left for a human to handle.
+  if (inputs.createPrWhenSemver.length > 0 && semverChange && !inputs.createPrWhenSemver.includes(semverChange)) {
+    deps.log(
+      `A ${semverChange} bump (${current} -> ${latest}) is not in create-pr-when-semver ` +
+        `[${inputs.createPrWhenSemver.join(', ')}]; skipping PR creation.`
+    )
+    return {
+      outputs: { changed: true, current, latest, semverChange, shouldCreatePr: false, shouldAutoMerge: false }
+    }
   }
 
   await deps.installExact(inputs.package, latest, npmCtx)
@@ -126,6 +151,8 @@ export async function run(inputs: Inputs, deps: Deps): Promise<RunResult> {
       changed: true,
       current,
       latest,
+      semverChange,
+      shouldCreatePr: true,
       shouldAutoMerge: shouldAutoMerge(current, latest, inputs),
       prTitle: `Bump ${inputs.package} to ${latest} (${inputs.tag})`,
       prBranch: `auto-update/${slugForBranch(inputs.package)}-${inputs.tag}`,
@@ -176,10 +203,11 @@ const SEMVER_CHANGES: readonly SemverChange[] = ['major', 'minor', 'patch']
 // ignored (see classifySemverChange).
 const SEMVER_CORE = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/
 
-// Parse the auto-merge-when-semver input: a comma/whitespace-separated list of
-// major/minor/patch. Throws on any unrecognized token so a typo fails loudly
-// rather than silently narrowing what auto-merges.
-export function parseAutoMergeWhenSemver(raw: string): SemverChange[] {
+// Parse a semver-filter input (a comma/whitespace-separated list of
+// major/minor/patch) into a normalized, deduped list. Throws on any
+// unrecognized token, naming the input, so a typo fails loudly rather than
+// silently narrowing behavior. inputName is used only for the error message.
+export function parseSemverList(raw: string, inputName: string): SemverChange[] {
   const tokens = raw
     .split(/[\s,]+/)
     .map((t) => t.trim().toLowerCase())
@@ -188,13 +216,17 @@ export function parseAutoMergeWhenSemver(raw: string): SemverChange[] {
   for (const token of tokens) {
     if (!SEMVER_CHANGES.includes(token as SemverChange)) {
       throw new Error(
-        `Invalid 'auto-merge-when-semver' value '${token}'. ` +
-          `Expected a comma-separated list of: ${SEMVER_CHANGES.join(', ')}.`
+        `Invalid '${inputName}' value '${token}'. Expected a comma-separated list of: ${SEMVER_CHANGES.join(', ')}.`
       )
     }
     seen.add(token as SemverChange)
   }
   return SEMVER_CHANGES.filter((c) => seen.has(c))
+}
+
+// Back-compat wrapper for the auto-merge-when-semver input.
+export function parseAutoMergeWhenSemver(raw: string): SemverChange[] {
+  return parseSemverList(raw, 'auto-merge-when-semver')
 }
 
 // Classify a version bump as major/minor/patch by comparing the core X.Y.Z.
@@ -231,6 +263,19 @@ export function shouldAutoMerge(prev: string, next: string, inputs: Inputs): boo
   return inputs.autoMergeWhenSemver.includes(change)
 }
 
+// Decide whether the bump from prev -> next should open a PR at all, given the
+// inputs.
+// - no create-pr filter set -> always (open a PR for every bump; default)
+// - filter set              -> only when the classified change is in the filter
+//                              (throws via classifySemverChange if not semver)
+// A bump whose type is excluded is left for a human to handle manually — e.g.
+// keep majors out of the automated flow with create-pr-when-semver: patch, minor.
+export function shouldCreatePr(prev: string, next: string, inputs: Inputs): boolean {
+  if (inputs.createPrWhenSemver.length === 0) return true
+  const change = classifySemverChange(prev, next)
+  return inputs.createPrWhenSemver.includes(change)
+}
+
 function realDeps(): Deps {
   const cwd = process.env.GITHUB_WORKSPACE ?? process.cwd()
   return {
@@ -251,6 +296,8 @@ function applyOutputs(outputs: Outputs): void {
   core.setOutput('changed', String(outputs.changed))
   if (outputs.current) core.setOutput('current', outputs.current)
   if (outputs.latest) core.setOutput('latest', outputs.latest)
+  if (outputs.semverChange) core.setOutput('semver-change', outputs.semverChange)
+  if (outputs.shouldCreatePr !== undefined) core.setOutput('should-create-pr', String(outputs.shouldCreatePr))
   if (outputs.shouldAutoMerge !== undefined) core.setOutput('should-auto-merge', String(outputs.shouldAutoMerge))
   if (outputs.prTitle) core.setOutput('pr-title', outputs.prTitle)
   if (outputs.prBranch) core.setOutput('pr-branch', outputs.prBranch)
@@ -294,7 +341,8 @@ async function main(): Promise<void> {
     scope: readInput('npm-scope'),
     token: readInput('token', { required: true }),
     autoMerge: readBooleanInput('auto-merge'),
-    autoMergeWhenSemver: parseAutoMergeWhenSemver(readInput('auto-merge-when-semver'))
+    autoMergeWhenSemver: parseSemverList(readInput('auto-merge-when-semver'), 'auto-merge-when-semver'),
+    createPrWhenSemver: parseSemverList(readInput('create-pr-when-semver'), 'create-pr-when-semver')
   }
   const result = await run(inputs, realDeps())
   applyOutputs(result.outputs)
