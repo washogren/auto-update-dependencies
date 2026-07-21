@@ -10,11 +10,13 @@ import {
   classifySemverChange,
   npmRegistryEnv,
   parseAutoMergeWhenSemver,
+  parseSemverList,
   readBooleanInput,
   readInput,
   registryAuthKey,
   run,
   shouldAutoMerge,
+  shouldCreatePr,
   slugForBranch,
   type Deps,
   type Inputs
@@ -27,7 +29,8 @@ const baseInputs: Inputs = {
   scope: '@your-org',
   token: 'fake-token',
   autoMerge: false,
-  autoMergeWhenSemver: []
+  autoMergeWhenSemver: [],
+  createPrWhenSemver: []
 }
 
 function commit(sha: string, message: string, prs: AssociatedPr[] = []): CommitWithPrs {
@@ -245,6 +248,44 @@ describe('run — happy path', () => {
     expect(off.outputs.shouldAutoMerge).toBe(false)
   })
 
+  it('short-circuits before install when the bump type is excluded by create-pr-when-semver', async () => {
+    // 1.0.0-prod.1 -> 2.0.0-dev.1 is a MAJOR bump; with create-pr-when-semver
+    // = [patch, minor] it must NOT create a PR, NOT install, and NOT render a
+    // body — but still report changed + the classified type for observability.
+    const { deps, cwd, installed, written } = await makeHarness({
+      readPinnedVersion: vi.fn(async () => '1.0.0-prod.1'),
+      readDistTag: vi.fn(async () => '2.0.0-dev.1')
+    })
+    cleanupPaths.push(cwd, deps.runnerTemp)
+
+    const result = await run({ ...baseInputs, createPrWhenSemver: ['patch', 'minor'] }, deps)
+
+    expect(result.outputs).toMatchObject({
+      changed: true,
+      current: '1.0.0-prod.1',
+      latest: '2.0.0-dev.1',
+      semverChange: 'major',
+      shouldCreatePr: false,
+      shouldAutoMerge: false
+    })
+    expect(result.outputs.prBodyPath).toBeUndefined()
+    expect(installed).toEqual([]) // no install for an excluded bump
+    expect(written.size).toBe(0) // no changelog body rendered
+  })
+
+  it('creates the PR (shouldCreatePr true) when the bump type is included', async () => {
+    // patch bump, create-pr-when-semver includes patch -> full PR path.
+    const { deps, cwd, installed } = await makeHarness({
+      readPinnedVersion: vi.fn(async () => '1.0.0-prod.1'),
+      readDistTag: vi.fn(async () => '1.0.2-dev.12')
+    })
+    cleanupPaths.push(cwd, deps.runnerTemp)
+
+    const result = await run({ ...baseInputs, createPrWhenSemver: ['patch', 'minor'] }, deps)
+    expect(result.outputs).toMatchObject({ changed: true, semverChange: 'patch', shouldCreatePr: true })
+    expect(installed).toEqual(['@your-org/your-dependency@1.0.2-dev.12'])
+  })
+
   it('writes the rendered body to a real file when writeFile is the real impl', async () => {
     const realCwd = await mkdtemp(join(tmpdir(), 'aud-real-'))
     const realRunnerTemp = await mkdtemp(join(tmpdir(), 'aud-real-runner-'))
@@ -366,7 +407,8 @@ describe('npmRegistryEnv', () => {
     scope: '@qsrsoft',
     token: 'secret-token',
     autoMerge: false,
-    autoMergeWhenSemver: []
+    autoMergeWhenSemver: [],
+    createPrWhenSemver: []
   }
 
   it('binds only the scoped registry, never the global default', () => {
@@ -478,6 +520,41 @@ describe('shouldAutoMerge', () => {
   })
 })
 
+describe('shouldCreatePr', () => {
+  const withFilter = (semver: Inputs['createPrWhenSemver']): Inputs => ({
+    ...baseInputs,
+    createPrWhenSemver: semver
+  })
+
+  it('creates a PR for any bump when no filter is set (default)', () => {
+    expect(shouldCreatePr('1.0.0-dev.1', 'weird-tag', withFilter([]))).toBe(true)
+  })
+
+  it('creates a PR only when the classified change is in the filter', () => {
+    expect(shouldCreatePr('1.0.0', '1.0.1', withFilter(['patch', 'minor']))).toBe(true)
+    expect(shouldCreatePr('1.0.0', '1.1.0', withFilter(['patch', 'minor']))).toBe(true)
+    // Major excluded — left for manual handling.
+    expect(shouldCreatePr('1.0.0', '2.0.0', withFilter(['patch', 'minor']))).toBe(false)
+  })
+
+  it('throws when the filter is set but a version is not semver', () => {
+    expect(() => shouldCreatePr('1.0.0', 'latest', withFilter(['patch']))).toThrow(/not in major\.minor\.patch form/)
+  })
+})
+
+describe('parseSemverList', () => {
+  it('names the offending input in the error message', () => {
+    expect(() => parseSemverList('major, bogus', 'create-pr-when-semver')).toThrow(
+      /Invalid 'create-pr-when-semver' value 'bogus'/
+    )
+  })
+
+  it('normalizes and dedupes regardless of order/case/whitespace', () => {
+    expect(parseSemverList('PATCH, major,  patch', 'x')).toEqual(['major', 'patch'])
+    expect(parseSemverList('', 'x')).toEqual([])
+  })
+})
+
 // ---------------------------------------------------------------------------
 // action.yml schema — guards the composite contract
 // ---------------------------------------------------------------------------
@@ -526,11 +603,13 @@ describe('action.yml — composite shape', () => {
     expect(cprIdx).toBeGreaterThan(bumpIdx)
   })
 
-  it('only runs peter-evans when the bump step reports changed', async () => {
+  it('only runs peter-evans when the bump step says a PR should be created', async () => {
+    // should-create-pr subsumes changed: it's only 'true' on the changed path
+    // where the bump type passes create-pr-when-semver.
     const yml = await loadActionYml()
     const cpr = yml.runs.steps.find((s) => (s.uses ?? '').startsWith('peter-evans/create-pull-request'))
     expect(cpr).toBeDefined()
-    expect(cpr!.if).toMatch(/steps\.bump\.outputs\.changed\s*==\s*'true'/)
+    expect(cpr!.if).toMatch(/steps\.bump\.outputs\.should-create-pr\s*==\s*'true'/)
   })
 })
 
@@ -549,7 +628,8 @@ describe('action.yml — input/env mapping', () => {
       'INPUT_NPM_SCOPE',
       'INPUT_TOKEN',
       'INPUT_AUTO_MERGE',
-      'INPUT_AUTO_MERGE_WHEN_SEMVER'
+      'INPUT_AUTO_MERGE_WHEN_SEMVER',
+      'INPUT_CREATE_PR_WHEN_SEMVER'
     ]
     for (const key of required) {
       expect(env[key], `missing env mapping: ${key}`).toBeDefined()
@@ -615,10 +695,12 @@ describe('action.yml — outputs', () => {
     expect(yml.outputs['pr-operation'].value).toContain('steps.cpr.outputs.pull-request-operation')
   })
 
-  it('passes through the bump step outputs (changed, current, latest)', async () => {
+  it('passes through the bump step outputs (changed, current, latest, semver-change, should-create-pr)', async () => {
     const yml = await loadActionYml()
     expect(yml.outputs['changed'].value).toContain('steps.bump.outputs.changed')
     expect(yml.outputs['current'].value).toContain('steps.bump.outputs.current')
     expect(yml.outputs['latest'].value).toContain('steps.bump.outputs.latest')
+    expect(yml.outputs['semver-change'].value).toContain('steps.bump.outputs.semver-change')
+    expect(yml.outputs['should-create-pr'].value).toContain('steps.bump.outputs.should-create-pr')
   })
 })

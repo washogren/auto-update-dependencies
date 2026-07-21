@@ -19659,11 +19659,13 @@ __export(index_exports, {
   classifySemverChange: () => classifySemverChange,
   npmRegistryEnv: () => npmRegistryEnv,
   parseAutoMergeWhenSemver: () => parseAutoMergeWhenSemver,
+  parseSemverList: () => parseSemverList,
   readBooleanInput: () => readBooleanInput,
   readInput: () => readInput,
   registryAuthKey: () => registryAuthKey,
   run: () => run,
   shouldAutoMerge: () => shouldAutoMerge,
+  shouldCreatePr: () => shouldCreatePr,
   slugForBranch: () => slugForBranch
 });
 module.exports = __toCommonJS(index_exports);
@@ -24893,6 +24895,15 @@ async function run(inputs, deps) {
     deps.log(`Already at ${latest}. Nothing to do.`);
     return { outputs: { changed: false, current, latest } };
   }
+  const semverChange = inputs.createPrWhenSemver.length > 0 || inputs.autoMergeWhenSemver.length > 0 ? classifySemverChange(current, latest) : void 0;
+  if (inputs.createPrWhenSemver.length > 0 && semverChange && !inputs.createPrWhenSemver.includes(semverChange)) {
+    deps.log(
+      `A ${semverChange} bump (${current} -> ${latest}) is not in create-pr-when-semver [${inputs.createPrWhenSemver.join(", ")}]; skipping PR creation.`
+    );
+    return {
+      outputs: { changed: true, current, latest, semverChange, shouldCreatePr: false, shouldAutoMerge: false }
+    };
+  }
   await deps.installExact(inputs.package, latest, npmCtx);
   const repoUrlRaw = await deps.readRepositoryUrl(inputs.package, latest, npmCtx);
   if (!repoUrlRaw) {
@@ -24935,6 +24946,8 @@ async function run(inputs, deps) {
       changed: true,
       current,
       latest,
+      semverChange,
+      shouldCreatePr: true,
       shouldAutoMerge: shouldAutoMerge(current, latest, inputs),
       prTitle: `Bump ${inputs.package} to ${latest} (${inputs.tag})`,
       prBranch: `auto-update/${slugForBranch(inputs.package)}-${inputs.tag}`,
@@ -24961,18 +24974,21 @@ function registryAuthKey(registry) {
 }
 var SEMVER_CHANGES = ["major", "minor", "patch"];
 var SEMVER_CORE = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/;
-function parseAutoMergeWhenSemver(raw) {
+function parseSemverList(raw, inputName) {
   const tokens = raw.split(/[\s,]+/).map((t) => t.trim().toLowerCase()).filter((t) => t.length > 0);
   const seen = /* @__PURE__ */ new Set();
   for (const token of tokens) {
     if (!SEMVER_CHANGES.includes(token)) {
       throw new Error(
-        `Invalid 'auto-merge-when-semver' value '${token}'. Expected a comma-separated list of: ${SEMVER_CHANGES.join(", ")}.`
+        `Invalid '${inputName}' value '${token}'. Expected a comma-separated list of: ${SEMVER_CHANGES.join(", ")}.`
       );
     }
     seen.add(token);
   }
   return SEMVER_CHANGES.filter((c) => seen.has(c));
+}
+function parseAutoMergeWhenSemver(raw) {
+  return parseSemverList(raw, "auto-merge-when-semver");
 }
 function classifySemverChange(prev, next) {
   const prevMatch = SEMVER_CORE.exec(prev);
@@ -24995,6 +25011,11 @@ function shouldAutoMerge(prev, next, inputs) {
   const change = classifySemverChange(prev, next);
   return inputs.autoMergeWhenSemver.includes(change);
 }
+function shouldCreatePr(prev, next, inputs) {
+  if (inputs.createPrWhenSemver.length === 0) return true;
+  const change = classifySemverChange(prev, next);
+  return inputs.createPrWhenSemver.includes(change);
+}
 function realDeps() {
   const cwd = process.env.GITHUB_WORKSPACE ?? process.cwd();
   return {
@@ -25014,6 +25035,8 @@ function applyOutputs(outputs) {
   setOutput("changed", String(outputs.changed));
   if (outputs.current) setOutput("current", outputs.current);
   if (outputs.latest) setOutput("latest", outputs.latest);
+  if (outputs.semverChange) setOutput("semver-change", outputs.semverChange);
+  if (outputs.shouldCreatePr !== void 0) setOutput("should-create-pr", String(outputs.shouldCreatePr));
   if (outputs.shouldAutoMerge !== void 0) setOutput("should-auto-merge", String(outputs.shouldAutoMerge));
   if (outputs.prTitle) setOutput("pr-title", outputs.prTitle);
   if (outputs.prBranch) setOutput("pr-branch", outputs.prBranch);
@@ -25043,7 +25066,8 @@ async function main() {
     scope: readInput("npm-scope"),
     token: readInput("token", { required: true }),
     autoMerge: readBooleanInput("auto-merge"),
-    autoMergeWhenSemver: parseAutoMergeWhenSemver(readInput("auto-merge-when-semver"))
+    autoMergeWhenSemver: parseSemverList(readInput("auto-merge-when-semver"), "auto-merge-when-semver"),
+    createPrWhenSemver: parseSemverList(readInput("create-pr-when-semver"), "create-pr-when-semver")
   };
   const result = await run(inputs, realDeps());
   applyOutputs(result.outputs);
@@ -25061,11 +25085,13 @@ if (process.env.VITEST !== "true") {
   classifySemverChange,
   npmRegistryEnv,
   parseAutoMergeWhenSemver,
+  parseSemverList,
   readBooleanInput,
   readInput,
   registryAuthKey,
   run,
   shouldAutoMerge,
+  shouldCreatePr,
   slugForBranch
 });
 /*! Bundled license information:
