@@ -100,7 +100,7 @@ runs:
       # `registry=<npm-registry>` default into .npmrc, making the private
       # registry the global default so public deps 404. The bump step binds only
       # `@scope:registry` + the auth token itself (see npmRegistryEnv).
-      uses: actions/setup-node@v6
+      uses: actions/setup-node@v7
       with:
         node-version: ${{ inputs.node-version }}
 
