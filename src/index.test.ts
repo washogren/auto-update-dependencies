@@ -662,27 +662,61 @@ describe('action.yml — peter-evans wiring', () => {
 })
 
 describe('action.yml — auto-merge', () => {
-  it('runs an auto-merge step after peter-evans, gated on created + auto-merge', async () => {
+  const autoMergeStep = (yml: ActionYml) => yml.runs.steps.find((s) => (s.run ?? '').includes('gh pr merge'))
+
+  it('runs the auto-merge step after peter-evans', async () => {
     const yml = await loadActionYml()
     const steps = yml.runs.steps
     const cprIdx = steps.findIndex((s) => (s.uses ?? '').startsWith('peter-evans/create-pull-request'))
     const mergeIdx = steps.findIndex((s) => (s.run ?? '').includes('gh pr merge'))
     expect(mergeIdx).toBeGreaterThan(cprIdx)
-    const merge = steps[mergeIdx]
-    expect(merge.if).toMatch(/steps\.cpr\.outputs\.pull-request-operation\s*==\s*'created'/)
-    // The bump step computes the semver-aware decision; the gate defers to it
-    // rather than re-checking inputs.auto-merge directly.
-    expect(merge.if).toMatch(/steps\.bump\.outputs\.should-auto-merge\s*==\s*'true'/)
+  })
+
+  it('reconsiders auto-merge on every PR it touches, not only newly created ones', async () => {
+    // Regression: gating on `pull-request-operation == 'created'` armed a PR on
+    // the run that opened it and never revisited the decision. When the
+    // dist-tag advanced past the next minor, the same PR was re-rendered as a
+    // minor bump but stayed armed, merging a type auto-merge-when-semver excludes.
+    const yml = await loadActionYml()
+    const merge = autoMergeStep(yml)
+    expect(merge).toBeDefined()
+    expect(merge!.if).not.toMatch(/pull-request-operation\s*==\s*'created'/)
+    expect(merge!.if).toMatch(/steps\.cpr\.outputs\.pull-request-number\s*!=\s*''/)
+  })
+
+  it('arms only when the bump step says the type qualifies, and disarms when it stops', async () => {
+    const yml = await loadActionYml()
+    const run = autoMergeStep(yml)!.run!
+    const env = autoMergeStep(yml)!.env ?? {}
+    // The bump step computes the semver-aware decision; the step defers to it
+    // rather than re-deriving the classification in bash.
+    expect(env['SHOULD_AUTO_MERGE']).toContain('steps.bump.outputs.should-auto-merge')
+    expect(run).toContain('--auto')
+    expect(run).toContain('--disable-auto')
+  })
+
+  it('only disarms when auto-merge is enabled, leaving a manually-armed PR alone', async () => {
+    // With auto-merge off the action never arms anything, so anything armed was
+    // armed by a human — not ours to undo.
+    const yml = await loadActionYml()
+    const step = autoMergeStep(yml)!
+    expect(step.env!['AUTO_MERGE']).toContain('inputs.auto-merge')
+    expect(step.run!).toMatch(/AUTO_MERGE.*=.*true/)
+  })
+
+  it('checks the current state before acting so unchanged runs stay silent', async () => {
+    const yml = await loadActionYml()
+    const run = autoMergeStep(yml)!.run!
+    expect(run).toContain('autoMergeRequest')
+    expect(run.indexOf('autoMergeRequest')).toBeLessThan(run.indexOf('gh pr merge'))
   })
 
   it('comments before merging and honors the configured merge method', async () => {
     const yml = await loadActionYml()
-    const merge = yml.runs.steps.find((s) => (s.run ?? '').includes('gh pr merge'))
-    const run = merge!.run!
+    const run = autoMergeStep(yml)!.run!
     // Comment must precede the merge enable.
     expect(run.indexOf('gh pr comment')).toBeGreaterThanOrEqual(0)
     expect(run.indexOf('gh pr comment')).toBeLessThan(run.indexOf('gh pr merge'))
-    expect(run).toContain('--auto')
     expect(run).toContain('$MERGE_METHOD')
   })
 })

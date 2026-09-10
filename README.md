@@ -52,7 +52,7 @@ is still responsible for the surrounding workflow concerns: triggers, `permissio
 | `npm-scope`              | no       |                              | Scope to bind to the registry (e.g. `@your-org`).                                                                                       |
 | `node-version`           | no       | `20`                         | Node.js version used by the internal `actions/setup-node` step.                                                                         |
 | `delete-branch`          | no       | `true`                       | Forwarded to `peter-evans/create-pull-request` — delete the auto-update branch when the PR closes.                                      |
-| `auto-merge`             | no       | `false`                      | Enable GitHub auto-merge on a newly-created PR so it merges once required checks pass.                                                  |
+| `auto-merge`             | no       | `false`                      | Enable GitHub auto-merge on the PR so it merges once required checks pass. Re-evaluated on every run.                                   |
 | `auto-merge-method`      | no       | `squash`                     | Merge method when `auto-merge` is on: `merge`, `squash`, or `rebase`.                                                                   |
 | `auto-merge-when-semver` | no       |                              | Restrict auto-merge to specific bump types: a comma-separated list of `major`, `minor`, `patch`. Empty means merge every bump.          |
 | `create-pr-when-semver`  | no       |                              | Restrict PR creation to specific bump types: a comma-separated list of `major`, `minor`, `patch`. Empty means open a PR for every bump. |
@@ -72,9 +72,9 @@ is still responsible for the surrounding workflow concerns: triggers, `permissio
 
 ## Auto-merge
 
-Set `auto-merge: true` to have the action enable GitHub auto-merge on a newly-created PR. It posts a comment noting that
-auto-merge was enabled and the merge method, then runs `gh pr merge --auto --<method>`. The PR then merges on its own
-once all required status checks pass. Prerequisites:
+Set `auto-merge: true` to have the action enable GitHub auto-merge on the PR. It posts a comment noting that auto-merge
+was enabled and the merge method, then runs `gh pr merge --auto --<method>`. The PR then merges on its own once all
+required status checks pass. Prerequisites:
 
 - **"Allow auto-merge" must be enabled** in the repo's Settings → General.
 - **A branch protection rule with at least one required status check** must gate the base branch — auto-merge needs
@@ -83,8 +83,18 @@ once all required status checks pass. Prerequisites:
   downstream workflows (GitHub's loop prevention), same as PR creation. The `token` input should carry a PAT/App token
   if you rely on post-merge workflows.
 
-Auto-merge is only enabled on the `created` operation — re-running against an existing open PR (`updated`) leaves its
-existing merge state untouched.
+The merge state is re-decided on **every** run, not only when the PR is first created. An open auto-update PR is
+re-rendered whenever the dist-tag advances, and its bump type can change with it — a PR opened for a patch bump becomes
+a minor bump once the tag moves past the next minor. So each run either arms auto-merge, disarms it, or leaves it as-is:
+
+| `auto-merge-when-semver` says | PR currently armed | What the run does                     |
+| ----------------------------- | ------------------ | ------------------------------------- |
+| qualifies                     | no                 | comments, then arms auto-merge        |
+| qualifies                     | yes                | nothing — no duplicate comment        |
+| excluded                      | yes                | comments, then **disarms** auto-merge |
+| excluded                      | no                 | nothing                               |
+
+With `auto-merge: false` the action never arms or disarms anything, so auto-merge you enabled by hand is left alone.
 
 ### Restricting auto-merge by SemVer
 
@@ -191,11 +201,12 @@ action reads these via its own helper rather than `core.getInput`, which in `@ac
 
 ```bash
 npm install
-npm run lint        # eslint .
-npm run typecheck   # tsc --noEmit
-npm test            # vitest run — covers all four modules + the action.yml schema
-npm test -- -u      # regenerate the changelog inline snapshots after an intentional rendering change
-npm run build       # esbuild bundle to dist/index.js
+npm run format:check # prettier --check . — CI fails on this, so run it before pushing
+npm run lint         # eslint .
+npm run typecheck    # tsc --noEmit
+npm test             # vitest run — covers all four modules + the action.yml schema
+npm test -- -u       # regenerate the changelog inline snapshots after an intentional rendering change
+npm run build        # esbuild bundle to dist/index.js
 ```
 
 ### Source layout
