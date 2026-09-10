@@ -1,16 +1,22 @@
 name: End-to-end (action PR)
 
-# On every push to a PR, dogfoods the action against the real am-dependency
-# and am-consumer repos:
-#   1. format / lint / typecheck / test the PR
-#   2. dispatch am-dependency end-to-end.yml (4 patch bumps on dev) and wait
-#   3. dispatch am-consumer end-to-end.yml at the PR's HEAD SHA and wait
-#   4. comment on the PR with links to the consumer auto-update PR for
-#      manual visual review of the rendered body
+# On every push to a PR, dogfoods the action against the real am-dependency and
+# am-consumer repos:
+#   1. format / lint / typecheck / unit-test the PR
+#   2. dispatch am-dependency's publish run — one whole major version, three
+#      publishes, with the tier dist-tags pointed at them
+#   3. dispatch am-consumer's five-tier e2e at the PR's HEAD SHA and wait
+#   4. only if every tier passed, advance the major baseline so the NEXT run has
+#      a real lower-major version to classify against
+#   5. comment the outcome on the PR
+#
+# Step 4 is the crash-safety hinge. The major tier pins whatever
+# e2e-major-baseline resolves to, and that tag moves only after a fully green
+# run — so a failed or cancelled run leaves it pointing at the last known-good
+# version instead of at a major that was never finished publishing.
 #
 # Concurrency is per-PR for cancel-in-progress (each push supersedes the
-# previous run), and the downstream workflows have their own `end-to-end`
-# group so cross-PR / manual triggers serialize at the resource boundary.
+# previous run); the downstream workflows have their own serialized groups.
 
 on:
   pull_request:
@@ -22,6 +28,10 @@ permissions:
 concurrency:
   group: end-to-end-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
+
+env:
+  PACKAGE: '@washogren/am-dependency'
+  REGISTRY: 'https://npm.pkg.github.com'
 
 jobs:
   verify:
@@ -39,14 +49,14 @@ jobs:
       - run: npm test
 
   e2e:
-    # Skip fork PRs — they don't receive secrets, and we don't want to
-    # publish on behalf of an unverified contributor anyway.
+    # Skip fork PRs — they don't receive secrets, and we don't want to publish
+    # on behalf of an unverified contributor anyway.
     #
-    # Also skip Dependabot PRs — they run with the Dependabot secrets context,
-    # which does NOT include Actions secrets like E2E_TOKEN. Mirroring the
-    # token into Dependabot scope would expose it to any malicious dependency
-    # update. Verify + check-dist + super-linter + CodeQL still gate the bump;
-    # maintainers can run e2e manually post-merge if needed.
+    # Also skip Dependabot PRs, which run with the Dependabot secrets context and
+    # therefore cannot see E2E_TOKEN. Mirroring the token into that scope would
+    # expose it to any malicious dependency update. verify + check-dist +
+    # super-linter + CodeQL still gate those; maintainers can run this manually
+    # post-merge if a bump warrants it.
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
     needs: verify
@@ -58,152 +68,114 @@ jobs:
       ACTION_PR_SHA: ${{ github.event.pull_request.head.sha }}
       ACTION_PR_NUMBER: ${{ github.event.pull_request.number }}
     steps:
-      - name: Dispatch am-dependency bump-burst
-        id: burst
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      # --- am-dependency: publish one run's worth of versions ---
+      - name: Dispatch the am-dependency publish run
+        id: publish
         run: |
           START=$(date -u +%s)
-          gh workflow run end-to-end.yml -R washogren/am-dependency --ref dev
-          # Find the run we just dispatched.
+          gh workflow run publish-run.yml -R washogren/am-dependency --ref master
           for _ in $(seq 1 30); do
             RUN_ID=$(gh run list -R washogren/am-dependency \
-              --workflow end-to-end.yml \
-              --limit 5 \
+              --workflow publish-run.yml --limit 5 \
               --json databaseId,createdAt,event \
-              -q "[.[] | select(.event == \"workflow_dispatch\") | select((.createdAt | fromdateiso8601) >= $START)] | .[0].databaseId")
+              --jq "[.[] | select(.event == \"workflow_dispatch\") | select((.createdAt | fromdateiso8601) >= $START)] | .[0].databaseId")
             if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
-              echo "burst_run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
-              echo "burst_run_url=https://github.com/washogren/am-dependency/actions/runs/$RUN_ID" >> "$GITHUB_OUTPUT"
+              echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+              echo "run_url=https://github.com/washogren/am-dependency/actions/runs/$RUN_ID" >> "$GITHUB_OUTPUT"
               break
             fi
             sleep 2
           done
           if [ -z "${RUN_ID:-}" ] || [ "$RUN_ID" = "null" ]; then
-            echo "could not locate dispatched bump-burst run" >&2
+            echo "::error::could not locate the dispatched publish run" >&2
             exit 1
           fi
-          echo "Dispatched: https://github.com/washogren/am-dependency/actions/runs/$RUN_ID"
+          echo "dispatched: https://github.com/washogren/am-dependency/actions/runs/$RUN_ID"
 
-      - name: Wait for am-dependency end-to-end to finish
-        run: |
-          gh run watch -R washogren/am-dependency ${{ steps.burst.outputs.burst_run_id }} --exit-status
+      - name: Wait for the publish run
+        run: gh run watch -R washogren/am-dependency ${{ steps.publish.outputs.run_id }} --exit-status
 
-      - name: Dispatch am-consumer end-to-end at PR SHA
+      # --- am-consumer: run the five tiers against THIS PR's action code ---
+      - name: Dispatch the am-consumer tiers at the PR SHA
         id: consumer
         run: |
           START=$(date -u +%s)
           gh workflow run end-to-end.yml -R washogren/am-consumer \
-            --ref master \
-            --field action-ref="$ACTION_PR_SHA"
+            --ref master --field action-ref="$ACTION_PR_SHA"
           for _ in $(seq 1 30); do
             RUN_ID=$(gh run list -R washogren/am-consumer \
-              --workflow end-to-end.yml \
-              --limit 5 \
+              --workflow end-to-end.yml --limit 5 \
               --json databaseId,createdAt,event \
-              -q "[.[] | select(.event == \"workflow_dispatch\") | select((.createdAt | fromdateiso8601) >= $START)] | .[0].databaseId")
+              --jq "[.[] | select(.event == \"workflow_dispatch\") | select((.createdAt | fromdateiso8601) >= $START)] | .[0].databaseId")
             if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
-              echo "consumer_run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
-              echo "consumer_run_url=https://github.com/washogren/am-consumer/actions/runs/$RUN_ID" >> "$GITHUB_OUTPUT"
+              echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+              echo "run_url=https://github.com/washogren/am-consumer/actions/runs/$RUN_ID" >> "$GITHUB_OUTPUT"
               break
             fi
             sleep 2
           done
           if [ -z "${RUN_ID:-}" ] || [ "$RUN_ID" = "null" ]; then
-            echo "could not locate dispatched am-consumer run" >&2
+            echo "::error::could not locate the dispatched consumer run" >&2
             exit 1
           fi
 
-      - name: Wait for am-consumer end-to-end to finish
-        run: |
-          gh run watch -R washogren/am-consumer ${{ steps.consumer.outputs.consumer_run_id }} --exit-status
+      - name: Wait for the consumer tiers
+        id: tiers
+        run: gh run watch -R washogren/am-consumer ${{ steps.consumer.outputs.run_id }} --exit-status
 
-      - name: Find consumer auto-update PR(s)
-        id: consumer_pr
-        run: |
-          # The action opens / updates `auto-update/washogren-am-dependency-dev`.
-          PR_JSON=$(gh pr list -R washogren/am-consumer \
-            --state open \
-            --head auto-update/washogren-am-dependency-dev \
-            --json number,url,title \
-            --limit 5)
-          {
-            echo "pr_json<<EOF"
-            echo "$PR_JSON"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Merge consumer auto-update PR(s)
-        # Merge BEFORE commenting so the link in the PR comment lands on a
-        # merged PR whose body is frozen at this run's rendering. Merging
-        # (rather than closing) advances `dev` exactly like the real cron flow
-        # — the next run bumps from the just-merged state — and avoids the
-        # closed-PR pile-up that accrued when each e2e run abandoned its PR.
-        # --delete-branch cleans up the auto-update branch; peter-evans
-        # recreates it on the next run.
-        #
-        # Gate the merge on the PR's own checks (am-consumer's test-pr.yml).
-        # am-consumer is a private repo on a free plan, so branch protection
-        # can't enforce required checks — this step enforces it instead. Opening
-        # the PR triggers test-pr.yml asynchronously, so we `--watch` the PR's
-        # checks to completion first; `--fail-fast` makes gh exit non-zero the
-        # moment a check fails. A failing test skips the merge and fails this
-        # step rather than merging a broken bump.
+      # --- only now, with every tier green, is the baseline safe to advance ---
+      - name: Advance the major baseline
         env:
-          PR_JSON: ${{ steps.consumer_pr.outputs.pr_json }}
-          ACTION_PR_NUMBER: ${{ env.ACTION_PR_NUMBER }}
-          ACTION_PR_SHA: ${{ env.ACTION_PR_SHA }}
+          NODE_AUTH_TOKEN: ${{ secrets.E2E_TOKEN }}
         run: |
-          failed=0
-          # Read into an array so the loop body runs in this shell (not a pipe
-          # subshell), letting a failure set `failed` and fail the step.
-          mapfile -t PR_NUMBERS < <(echo "$PR_JSON" | jq -r '.[].number')
-          for N in "${PR_NUMBERS[@]}"; do
-            [ -z "$N" ] && continue
-            # test-pr.yml registers its check asynchronously after the PR opens.
-            # `gh pr checks --watch` errors instead of waiting when zero checks
-            # exist yet, so poll until at least one shows up before watching.
-            echo "Waiting for a check to register on am-consumer PR #$N..."
-            for _ in $(seq 1 30); do
-              if gh pr checks "$N" -R washogren/am-consumer >/dev/null 2>&1; then
-                break
-              fi
-              sleep 4
-            done
-            echo "Watching checks on am-consumer PR #$N..."
-            if ! gh pr checks "$N" -R washogren/am-consumer --watch --fail-fast; then
-              echo "::error::am-consumer PR #$N has failing checks; refusing to merge it."
-              gh pr comment "$N" -R washogren/am-consumer \
-                --body "Not merged by auto-update-dependencies#${ACTION_PR_NUMBER} (action ref \`${ACTION_PR_SHA}\`): the PR's checks failed. Merge is gated on a green test run."
-              failed=1
-              continue
-            fi
-            gh pr comment "$N" -R washogren/am-consumer \
-              --body "Merged by auto-update-dependencies#${ACTION_PR_NUMBER} (action ref \`${ACTION_PR_SHA}\`) as the historical e2e artifact. Merging advances \`dev\` like the real flow and keeps this PR's rendered body frozen."
-            gh pr merge "$N" -R washogren/am-consumer --merge --delete-branch
-          done
-          exit "$failed"
+          # Scope-bound only, never a global default. These keys are not valid
+          # shell identifiers (`@`, `:`, `/`), so they go in .npmrc rather than
+          # through `export`.
+          printf '@washogren:registry=%s\n' "$REGISTRY" > .npmrc
+          printf '//npm.pkg.github.com/:_authToken=%s\n' "$NODE_AUTH_TOKEN" >> .npmrc
 
-      - name: Comment on the action PR
+          # e2e-patch points at this run's M.1.1 — read it rather than plumbing
+          # the version across repos.
+          LATEST=$(npm dist-tag ls "$PACKAGE" | sed -n 's/^e2e-patch: //p')
+          [ -n "$LATEST" ] || { echo "::error::could not resolve e2e-patch" >&2; exit 1; }
+
+          PREV=$(npm dist-tag ls "$PACKAGE" | sed -n 's/^e2e-major-baseline: //p')
+          npm dist-tag add "$PACKAGE@$LATEST" e2e-major-baseline
+          echo "e2e-major-baseline: ${PREV:-<unset>} -> $LATEST"
+          echo "BASELINE_FROM=${PREV:-unset}" >> "$GITHUB_ENV"
+          echo "BASELINE_TO=$LATEST" >> "$GITHUB_ENV"
+
+      - name: Comment the outcome on the PR
+        if: always()
         env:
-          PR_JSON: ${{ steps.consumer_pr.outputs.pr_json }}
-          BURST_RUN_URL: ${{ steps.burst.outputs.burst_run_url }}
-          CONSUMER_RUN_URL: ${{ steps.consumer.outputs.consumer_run_url }}
+          PUBLISH_URL: ${{ steps.publish.outputs.run_url }}
+          CONSUMER_URL: ${{ steps.consumer.outputs.run_url }}
+          TIERS_RESULT: ${{ steps.tiers.outcome }}
         run: |
-          PR_LINKS=$(printf '%s' "$PR_JSON" | jq -r '.[] | "- [\(.title)](\(.url))"')
-          if [ -z "$PR_LINKS" ]; then
-            PR_LINKS="_(no open auto-update PR found on am-consumer — the run may have produced no diff)_"
-          fi
-
           {
-            echo "### End-to-end test results"
+            echo "### End-to-end results"
             echo
             echo "**Action ref tested:** \`$ACTION_PR_SHA\`"
             echo
-            echo "- am-dependency bump-burst: [run]($BURST_RUN_URL)"
-            echo "- am-consumer end-to-end: [run]($CONSUMER_RUN_URL)"
+            echo "| stage | result | run |"
+            echo "| --- | --- | --- |"
+            echo "| am-dependency publish run | ${{ steps.publish.outcome }} | [log]($PUBLISH_URL) |"
+            echo "| am-consumer five tiers | $TIERS_RESULT | [log]($CONSUMER_URL) |"
             echo
-            echo "**Consumer PR(s) for manual review:**"
-            echo
-            echo "$PR_LINKS"
+            if [ "$TIERS_RESULT" = "success" ]; then
+              echo "All five tiers passed — patch auto-merged, minor stayed open, update"
+              echo "reused one PR, major opened none, nochange did nothing."
+              echo
+              echo "Major baseline advanced: \`${BASELINE_FROM:-unset}\` → \`${BASELINE_TO:-unchanged}\`"
+            else
+              echo "> [!WARNING]"
+              echo "> A tier failed, so the major baseline was left untouched. The next run"
+              echo "> will classify against the last known-good version."
+            fi
           } > comment.md
 
           gh pr comment "$ACTION_PR_NUMBER" -R "$GITHUB_REPOSITORY" --body-file comment.md
