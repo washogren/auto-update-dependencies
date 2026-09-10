@@ -136,14 +136,40 @@ runs:
         commit-message: ${{ steps.bump.outputs.pr-commit-message }}
         body-path: ${{ steps.bump.outputs.pr-body-path }}
 
-    - name: Enable auto-merge
-      if: steps.cpr.outputs.pull-request-operation == 'created' && steps.bump.outputs.should-auto-merge == 'true'
+    - name: Reconcile auto-merge with the bump type
+      # Runs for every PR the action touches, not just newly created ones. An
+      # open PR is re-rendered whenever the dist-tag advances, and its bump type
+      # can change with it: a PR opened for a patch bump becomes a minor bump
+      # once the tag moves past the next minor. Gating this step on
+      # `pull-request-operation == 'created'` left that PR armed from its first
+      # run, so it merged anyway — defeating auto-merge-when-semver. Arming and
+      # disarming both have to be re-decided on every run.
+      if: steps.cpr.outputs.pull-request-number != ''
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
         PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
         MERGE_METHOD: ${{ inputs.auto-merge-method }}
+        AUTO_MERGE: ${{ inputs.auto-merge }}
+        SHOULD_AUTO_MERGE: ${{ steps.bump.outputs.should-auto-merge }}
+        SEMVER_CHANGE: ${{ steps.bump.outputs.semver-change }}
       run: |
-        gh pr comment "$PR_NUMBER" --body \
-          "🤖 Auto-merge enabled by \`auto-update-dependencies\` with the **${MERGE_METHOD}** method. This PR will merge automatically once all required status checks pass."
-        gh pr merge "$PR_NUMBER" --auto --"$MERGE_METHOD"
+        # Both branches are no-ops when the PR is already in the desired state,
+        # so a run that changes nothing stays silent instead of re-commenting.
+        armed=$(gh pr view "$PR_NUMBER" --json autoMergeRequest \
+          --jq 'if .autoMergeRequest then "yes" else "no" end')
+
+        if [ "$SHOULD_AUTO_MERGE" = "true" ]; then
+          if [ "$armed" = "no" ]; then
+            gh pr comment "$PR_NUMBER" --body \
+              "🤖 Auto-merge enabled by \`auto-update-dependencies\` with the **${MERGE_METHOD}** method. This PR will merge automatically once all required status checks pass."
+            gh pr merge "$PR_NUMBER" --auto --"$MERGE_METHOD"
+          fi
+        elif [ "$AUTO_MERGE" = "true" ] && [ "$armed" = "yes" ]; then
+          # auto-merge is on, but this bump type is excluded by
+          # auto-merge-when-semver. Only reached when the PR was armed by an
+          # earlier run whose bump type did qualify.
+          gh pr comment "$PR_NUMBER" --body \
+            "🤖 Auto-merge disabled by \`auto-update-dependencies\`: this PR now carries a **${SEMVER_CHANGE}** bump, which \`auto-merge-when-semver\` excludes. Merge it manually after review."
+          gh pr merge "$PR_NUMBER" --disable-auto
+        fi
