@@ -19,7 +19,7 @@
     "@actions/github": "^9.1.1"
   },
   "overrides": {
-    "undici": "^6.27.0"
+    "undici": "^6.28.0"
   },
   "devDependencies": {
     "@eslint/compat": "^2.1.0",
