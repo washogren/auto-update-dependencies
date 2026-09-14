@@ -164,6 +164,10 @@ jobs:
           CONSUMER: washogren/am-consumer
           DEPENDENCY: washogren/am-dependency
         run: |
+          # shellcheck disable=SC2016
+          # The single-quoted jq filters and printf formats below contain literal
+          # backticks — Markdown code spans in the rendered comment — which
+          # shellcheck reads as command substitution. Non-expansion is the intent.
           set +e   # a reporting step must never be the reason a run fails
 
           # --- the version plan, so each row can show what it compared ---
