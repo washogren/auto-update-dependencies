@@ -165,9 +165,14 @@ jobs:
           DEPENDENCY: washogren/am-dependency
         run: |
           # shellcheck disable=SC2016
-          # The single-quoted jq filters and printf formats below contain literal
-          # backticks — Markdown code spans in the rendered comment — which
-          # shellcheck reads as command substitution. Non-expansion is the intent.
+          #
+          # SC2016 is disabled because the single-quoted jq filters and printf
+          # formats below contain literal backticks — Markdown code spans in the
+          # rendered comment — which the linter reads as command substitution.
+          # Non-expansion is the intent, so the quoting stays as it is.
+          #
+          # Note: no line here may START with the linter's own name, or it gets
+          # parsed as another directive and fails with SC1073.
           set +e   # a reporting step must never be the reason a run fails
 
           # --- the version plan, so each row can show what it compared ---
