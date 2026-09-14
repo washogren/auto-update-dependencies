@@ -100,3 +100,9 @@ __tests__/runner/*
 # IDE files
 .idea
 *.code-workspace
+
+# Credentials and scratch output — never commit.
+# .npmrc is written at runtime by CI (scope-bound registry + auth token).
+# comment.md is the rendered PR report, produced per-run.
+.npmrc
+comment.md

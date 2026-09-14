@@ -68,7 +68,7 @@ jobs:
       ACTION_PR_SHA: ${{ github.event.pull_request.head.sha }}
       ACTION_PR_NUMBER: ${{ github.event.pull_request.number }}
     steps:
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
 
@@ -149,33 +149,129 @@ jobs:
           echo "BASELINE_FROM=${PREV:-unset}" >> "$GITHUB_ENV"
           echo "BASELINE_TO=$LATEST" >> "$GITHUB_ENV"
 
+      # Everything a reviewer needs to verify the run without opening it: a
+      # pass/fail per tier, the step that failed when one did, and a deep link to
+      # every PR and branch the run touched so the actual diffs are one click away.
       - name: Comment the outcome on the PR
         if: always()
         env:
+          NODE_AUTH_TOKEN: ${{ secrets.E2E_TOKEN }}
           PUBLISH_URL: ${{ steps.publish.outputs.run_url }}
+          PUBLISH_RESULT: ${{ steps.publish.outcome }}
           CONSUMER_URL: ${{ steps.consumer.outputs.run_url }}
+          CONSUMER_RUN_ID: ${{ steps.consumer.outputs.run_id }}
           TIERS_RESULT: ${{ steps.tiers.outcome }}
+          CONSUMER: washogren/am-consumer
+          DEPENDENCY: washogren/am-dependency
         run: |
+          set +e   # a reporting step must never be the reason a run fails
+
+          # Markdown code spans are built with this rather than written inline.
+          # A literal backtick inside a single-quoted string reads as command
+          # substitution to the shell linter (SC2016), and a disable directive
+          # does not survive the way workflow scripts are handed to it — so the
+          # backticks are kept out of quoted literals entirely.
+          BT=$(printf '\140')
+          code() { printf '%s%s%s' "$BT" "$1" "$BT"; }
+
+          # --- the version plan, so each row can show what it compared ---
+          printf '@washogren:registry=%s\n' "$REGISTRY" > .npmrc
+          printf '//npm.pkg.github.com/:_authToken=%s\n' "$NODE_AUTH_TOKEN" >> .npmrc
+          TAGS=$(npm dist-tag ls "$PACKAGE" 2>/dev/null)
+          LATEST=$(echo "$TAGS" | sed -n 's/^e2e-patch: //p')
+          BASE=$(echo "$TAGS" | sed -n 's/^e2e-major-baseline: //p')
+          M="${LATEST%%.*}"
+          [ -n "$M" ] && { PATCH_BASE="${M}.1.0"; MINOR_BASE="${M}.0.0"; }
+
+          # This step runs AFTER the baseline may have advanced, so the tag now
+          # reads this run's version rather than what the major tier actually
+          # compared against. BASELINE_FROM holds the pre-advance value and is
+          # only set when the advance ran; when it was skipped the tag is still
+          # the value the tier used.
+          MAJOR_COMPARED="${BASELINE_FROM:-$BASE}"
+
+          # --- per-tier job results from the consumer run ---
+          JOBS='{}'
+          if [ -n "$CONSUMER_RUN_ID" ]; then
+            JOBS=$(gh run view "$CONSUMER_RUN_ID" -R "$CONSUMER" --json jobs 2>/dev/null || echo '{}')
+          fi
+
+          job_field() { # $1=job name, $2=jq expression over the job object
+            echo "$JOBS" | jq -r --arg n "$1" "[.jobs[]? | select(.name==\$n)] | .[0] | $2 // \"\"" 2>/dev/null
+          }
+          icon() { case "$1" in success) echo "✅";; failure) echo "❌";; skipped) echo "⏭️";; "") echo "❔";; *) echo "⚠️";; esac; }
+
+          # --- one row per tier ---
+          row() { # $1=tier  $2=job name  $3=compare text  $4=expects a PR?
+            local tier="$1" job="$2" compare="$3" expects_pr="$4"
+            local concl failed pr_cell
+            concl=$(job_field "$job" '.conclusion')
+            failed=$(job_field "$job" '[.steps[]? | select(.conclusion=="failure") | .name] | first')
+
+            pr_cell="—"
+            local pr num url state
+            # Raw fields out of jq; the Markdown is assembled in bash so the
+            # filter stays free of backticks.
+            pr=$(gh pr list -R "$CONSUMER" --state all --limit 1 \
+                   --head "auto-update/washogren-am-dependency-e2e-$tier" \
+                   --json number,url,state --jq '.[0] | select(.number != null) | "\(.number) \(.url) \(.state)"' 2>/dev/null)
+            if [ -n "$pr" ]; then
+              read -r num url state <<<"$pr"
+              pr_cell="[#$num]($url) $(code "$state")"
+            elif [ "$expects_pr" = "no" ]; then
+              pr_cell="_none — expected_"
+            fi
+
+            echo "| \`$tier\` | $(icon "$concl") ${concl:-unknown} | $compare | $pr_cell | ${failed:-—} |"
+          }
+
           {
             echo "### End-to-end results"
             echo
-            echo "**Action ref tested:** \`$ACTION_PR_SHA\`"
+            printf '**Action ref:** [%s](https://github.com/%s/commit/%s)' \
+              "$(code "${ACTION_PR_SHA:0:7}")" "$GITHUB_REPOSITORY" "$ACTION_PR_SHA"
+            if [ -n "$M" ]; then
+              printf ' · **Run major:** %s (published %s → %s → %s)' \
+                "$(code "$M")" "$(code "$MINOR_BASE")" "$(code "$PATCH_BASE")" "$(code "$LATEST")"
+            fi
+            printf '\n'
             echo
-            echo "| stage | result | run |"
-            echo "| --- | --- | --- |"
-            echo "| am-dependency publish run | ${{ steps.publish.outcome }} | [log]($PUBLISH_URL) |"
-            echo "| am-consumer five tiers | $TIERS_RESULT | [log]($CONSUMER_URL) |"
+            echo "| Tier | Result | Compared | Pull request | Failed at |"
+            echo "| --- | --- | --- | --- | --- |"
+            row patch    "tier (patch)"    "\`$PATCH_BASE\` → \`$LATEST\` (patch)"          yes
+            row minor    "tier (minor)"    "\`$MINOR_BASE\` → \`$LATEST\` (minor)"          yes
+            row update   "tier-update"     "\`$MINOR_BASE\` → \`$PATCH_BASE\` → \`$LATEST\`" yes
+            row major    "tier (major)"    "\`$MAJOR_COMPARED\` → \`$LATEST\` (major)"      no
+            row nochange "tier (nochange)" "\`$LATEST\` → \`$LATEST\` (none)"               no
             echo
+            RESET_C=$(job_field "reset" '.conclusion')
+            RESET_F=$(job_field "reset" '[.steps[]? | select(.conclusion=="failure") | .name] | first')
+            echo "| Stage | Result | Log | Failed at |"
+            echo "| --- | --- | --- | --- |"
+            echo "| publish run | $(icon "$PUBLISH_RESULT") $PUBLISH_RESULT | [log](${PUBLISH_URL:-#}) | — |"
+            echo "| reset + seed | $(icon "$RESET_C") ${RESET_C:-unknown} | [log](${CONSUMER_URL:-#}) | ${RESET_F:-—} |"
+            echo "| tiers overall | $(icon "$TIERS_RESULT") $TIERS_RESULT | [log](${CONSUMER_URL:-#}) | — |"
+            echo
+            echo "<details><summary>Branches to review the diffs</summary>"
+            echo
+            for t in patch minor update major nochange; do
+              echo "- [\`e2e/$t\`](https://github.com/$CONSUMER/tree/e2e/$t) · [seed diff](https://github.com/$CONSUMER/compare/master...e2e/$t)"
+            done
+            echo "- [\`$DEPENDENCY\` commits this run](https://github.com/$DEPENDENCY/commits/master)"
+            echo
+            echo "</details>"
+            echo
+
             if [ "$TIERS_RESULT" = "success" ]; then
-              echo "All five tiers passed — patch auto-merged, minor stayed open, update"
-              echo "reused one PR, major opened none, nochange did nothing."
-              echo
               echo "Major baseline advanced: \`${BASELINE_FROM:-unset}\` → \`${BASELINE_TO:-unchanged}\`"
             else
               echo "> [!WARNING]"
-              echo "> A tier failed, so the major baseline was left untouched. The next run"
-              echo "> will classify against the last known-good version."
+              echo "> A tier failed, so the major baseline was left untouched at \`${BASE:-unknown}\`."
+              echo "> The next run classifies against that last known-good version, and Phase 0"
+              echo "> clears this run's branches and PRs before it starts."
             fi
           } > comment.md
 
+          cat comment.md
           gh pr comment "$ACTION_PR_NUMBER" -R "$GITHUB_REPOSITORY" --body-file comment.md
+          exit 0
