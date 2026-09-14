@@ -68,7 +68,7 @@ jobs:
       ACTION_PR_SHA: ${{ github.event.pull_request.head.sha }}
       ACTION_PR_NUMBER: ${{ github.event.pull_request.number }}
     steps:
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
 
